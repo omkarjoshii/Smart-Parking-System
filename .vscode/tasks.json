@@ -1,0 +1,25 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Start smart parking web server",
+            "type": "process",
+            "command": "node",
+            "args": [
+                "${workspaceFolder}\\smart-parking-web 1\\smart-parking-web\\dev-server.js"
+            ],
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "custom",
+                "pattern": {
+                    "regexp": "^$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^Starting smart parking web server",
+                    "endsPattern": "^Smart parking web server listening at "
+                }
+            }
+        }
+    ]
+}
