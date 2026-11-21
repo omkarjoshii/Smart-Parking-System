@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Monitoring - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/analytics.css">
+  <script>
+    if (sessionStorage.getItem("adcet_admin") !== "1") location.replace("admin-login.html");
+  </script>
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+
+  <div class="an-head">
+    <div>
+      <h1>Live Monitoring</h1>
+      <div class="status-line"><span class="dot" id="dot"></span><span id="conn">Connecting...</span></div>
+    </div>
+    <div class="an-actions">
+      <button class="btn secondary small" id="pause">Pause</button>
+      <a class="btn secondary small" href="settings.html#esp32">ESP32 settings</a>
+    </div>
+  </div>
+
+  <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(165px,1fr))">
+    <div class="stat"><div class="label">ESP32 connection status</div><div class="value" id="s-esp">-</div><div class="sub" id="s-mode"></div></div>
+    <div class="stat b"><div class="label">Entrance sensor status</div><div class="value" id="s-ent">-</div></div>
+    <div class="stat b"><div class="label">Exit sensor status</div><div class="value" id="s-exit">-</div></div>
+    <div class="stat g"><div class="label">Automatic gate status</div><div class="value" id="s-gate">-</div></div>
+    <div class="stat"><div class="label">Last updated time</div><div class="value" id="s-time" style="font-size:20px">-</div><div class="sub" id="s-ago"></div></div>
+  </div>
+
+  <div class="an-grid">
+    <div class="card">
+      <h3>Live sensor readings</h3>
+      <div class="sensor-grid" id="sensors"></div>
+      <div class="hint">Readings refresh automatically every <span id="poll"></span> seconds.</div>
+    </div>
+
+    <div class="card">
+      <h3>Slot status &amp; gate</h3>
+      <div id="bays"></div>
+      <div class="gate-box" id="gatebox" style="margin-top:12px">
+        <div style="font-size:12px;color:var(--muted);font-weight:600">AUTOMATIC GATE</div>
+        <div class="big" id="gate-big">-</div>
+      </div>
+      <div class="hint" id="demo-hint" style="display:none">Demo mode: click a slot to switch it between free and occupied for testing.</div>
+    </div>
+
+    <div class="card">
+      <h3>Connection details</h3>
+      <div class="row-kv"><span>ESP32 address</span><b id="k-url"></b></div>
+      <div class="row-kv"><span>Wi-Fi network</span><b id="k-ssid"></b></div>
+      <div class="row-kv"><span>Response time</span><b id="k-ms">-</b></div>
+      <div class="row-kv"><span>Last time seen online</span><b id="k-seen">-</b></div>
+      <div class="row-kv"><span>Message</span><b id="k-msg">-</b></div>
+    </div>
+
+    <div class="card">
+      <h3>Recent sensor events</h3>
+      <div class="log" id="log"><div style="color:var(--muted)">Waiting for changes...</div></div>
+      <div class="hint">Events are kept while this page is open.</div>
+    </div>
+  </div>
+
+  <h2 class="section">Raw data from the ESP32</h2>
+  <pre class="raw" id="raw">-</pre>
+  <div class="an-note">Open this page while connected to the Wi-Fi network of the ESP32. When the ESP32 cannot be reached the site shows demo data so that the pages can still be shown in a demo.</div>
+
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script>
+  renderHeader("admin");
+  renderSidebar("live");
+  renderFooter();
+
+  const $ = id => document.getElementById(id);
+  const pad = n => String(n).padStart(2, "0");
+  const clock = d => pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  let live = null, prev = null, paused = false, lastOk = null;
+  const events = [];
+
+  $("poll").textContent = (CONFIG.POLL_MS / 1000).toString().replace(/\.0$/, "");
+  $("k-url").textContent = CONFIG.ESP32_URL || "Not set";
+  $("k-ssid").textContent = CONFIG.ESP32_SSID || "-";
+
+  function sensorBox(k, name, on, hitText, clearText, online) {
+    const cls = !online ? "dead" : on ? "hit" : "ok";
+    return '<div class="sensor ' + cls + '"><div class="k">' + name + '</div><div class="v">' +
+      (online ? (on ? hitText : clearText) : "No signal") + "</div></div>";
+  }
+
+  function logChange(name, text) {
+    events.unshift('<div><time>' + clock(new Date()) + "</time>" + esc(name) + ": <b>" + esc(text) + "</b></div>");
+    events.length = Math.min(events.length, 20);
+    $("log").innerHTML = events.join("");
+  }
+
+  function detect(cur) {
+    if (prev && prev.online === cur.online) {
+      cur.slots.forEach((v, i) => { if (v !== prev.slots[i]) logChange("Slot " + (i + 1), v ? "occupied" : "free"); });
+      if (cur.entrance !== prev.entrance) logChange("Entrance sensor", cur.entrance ? "vehicle detected" : "clear");
+      if (cur.exit !== prev.exit) logChange("Exit sensor", cur.exit ? "vehicle detected" : "clear");
+      if (cur.gate !== prev.gate) logChange("Gate", cur.gate ? "opened" : "closed");
+    } else if (prev) {
+      logChange("ESP32", cur.online ? "connected" : "connection lost");
+    } else {
+      logChange("Monitoring", "started (" + (cur.online ? "ESP32 online" : "demo data") + ")");
+    }
+    prev = { online: cur.online, slots: cur.slots.slice(), entrance: cur.entrance, exit: cur.exit, gate: cur.gate };
+  }
+
+  function draw() {
+    const l = live, on = l.online;
+    $("dot").className = "dot " + (on ? "on" : "off");
+    $("conn").textContent = on ? "ESP32 connected - live data" : "ESP32 not reachable - demo mode";
+    $("s-esp").textContent = on ? "ONLINE" : "OFFLINE";
+    $("s-mode").textContent = on ? "Receiving live sensor data" : "Showing demo data";
+    $("s-ent").textContent = on ? (l.entrance ? "DETECTED" : "CLEAR") : "-";
+    $("s-exit").textContent = on ? (l.exit ? "DETECTED" : "CLEAR") : "-";
+    $("s-gate").textContent = on ? (l.gate ? "OPEN" : "CLOSED") : "-";
+    $("gate-big").textContent = on ? (l.gate ? "OPEN" : "CLOSED") : "UNKNOWN";
+    $("gatebox").className = "gate-box" + (on && l.gate ? " open" : "");
+
+    $("s-time").textContent = on ? clock(l.at) : (lastOk ? clock(lastOk) : "-");
+    $("sensors").innerHTML =
+      l.slots.map((v, i) => sensorBox("s" + i, "Slot " + (i + 1) + " sensor (IR" + (i + 1) + ")", v, "Vehicle detected", "Clear", on)).join("") +
+      sensorBox("ent", "Entrance sensor (IR5)", l.entrance, "Vehicle detected", "Clear", on) +
+      sensorBox("exit", "Exit sensor (IR6)", l.exit, "Vehicle detected", "Clear", on);
+
+    renderBays("bays", l, l.demo);
+    $("demo-hint").style.display = l.demo ? "" : "none";
+
+    $("k-ms").textContent = on && l.ms != null ? l.ms + " ms" : "-";
+    $("k-msg").textContent = on ? "OK" : (l.error || "Not reachable");
+    let seen = null;
+    try { seen = localStorage.getItem(SEEN_KEY); } catch (e) {}
+    $("k-seen").textContent = on ? "Now" : (seen ? fmtDateTime(seen) : "Never on this device");
+    $("raw").textContent = on ? JSON.stringify(l.raw, null, 2) : (CONFIG.ESP32_URL ? "No data - the ESP32 did not answer at " + CONFIG.ESP32_URL : "ESP32 address is not set. Enter it in System Settings > ESP32 connection information.");
+  }
+
+  function ago() {
+    if (!lastOk) { $("s-ago").textContent = live && live.online ? "" : "No live update yet"; return; }
+    const s = Math.round((Date.now() - lastOk) / 1000);
+    $("s-ago").textContent = s <= 1 ? "just now" : s + " seconds ago";
+  }
+
+  async function tick() {
+    if (paused) return;
+    live = await fetchLive();
+    if (live.online) lastOk = live.at;
+    detect(live);
+    draw();
+    ago();
+  }
+
+  $("bays").addEventListener("click", e => {
+    if (!live || !live.demo) return;
+    const bay = e.target.closest(".bay");
+    if (!bay) return;
+    toggleDemoSlot(Number(bay.dataset.slot));
+    tick();
+  });
+
+  $("pause").addEventListener("click", () => {
+    paused = !paused;
+    $("pause").textContent = paused ? "Resume" : "Pause";
+    if (!paused) tick();
+  });
+
+  tick();
+  setInterval(tick, CONFIG.POLL_MS);
+  setInterval(ago, 1000);
+</script>
+</body>
+</html>

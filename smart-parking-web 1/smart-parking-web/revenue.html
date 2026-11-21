@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Revenue Analytics - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/analytics.css">
+  <script>
+    if (sessionStorage.getItem("adcet_admin") !== "1") location.replace("admin-login.html");
+  </script>
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+
+  <div class="an-head">
+    <h1>Revenue Analytics</h1>
+    <div class="an-actions">
+      <span id="sample"></span>
+      <button class="btn secondary small" onclick="window.print()">Print</button>
+      <a class="btn secondary small" href="parking-analytics.html">Parking Analytics</a>
+      <a class="btn secondary small" href="admin.html">Back to dashboard</a>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat b"><div class="label">Total confirmed booking value</div><div class="value" id="s-total">-</div></div>
+    <div class="stat g"><div class="label">Collected (paid)</div><div class="value" id="s-paid">-</div></div>
+    <div class="stat r"><div class="label">Pending (pay at exit)</div><div class="value" id="s-pend">-</div></div>
+    <div class="stat"><div class="label">Today's booking amount</div><div class="value" id="s-today">-</div></div>
+  </div>
+
+  <h2 class="section">Revenue comparison</h2>
+  <div class="cmp-grid" id="cmp"></div>
+
+  <div class="an-grid">
+    <div class="card"><h3>Daily booking amount (last 14 days)</h3><div id="c-daily"></div></div>
+    <div class="card"><h3>Monthly booking amount (last 6 months)</h3><div id="c-month"></div></div>
+    <div class="card"><h3>Booked vs collected, by week (last 8 weeks)</h3><div id="c-week"></div></div>
+    <div class="card"><h3>Amount by payment method</h3><div id="c-method"></div></div>
+  </div>
+
+  <h2 class="section">Booking payment status</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Payment status</th><th>Bookings</th><th>Amount</th></tr></thead>
+      <tbody id="pay-rows"></tbody>
+    </table>
+  </div>
+  <div class="an-note">Booking amount = prepaid amount, or the final amount once a booking is completed. Cancelled and no-show bookings are not counted in revenue. Bookings are stored in this browser (prototype).</div>
+
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/analytics.js"></script>
+<script>
+  renderHeader("admin");
+  renderSidebar("revenue");
+  renderFooter();
+
+  const $ = id => document.getElementById(id);
+  const inr = v => "₹" + Math.round(v);
+  const D = AN.DAY;
+
+  // sum of booking amounts whose booking date is in [from, to)
+  function sum(list, from, to, paidOnly) {
+    return list.filter(b => {
+      const t = new Date(b.bookedAt).getTime();
+      return t >= from && t < to && (!paidOnly || b.payStatus === "Paid");
+    }).reduce((a, b) => a + AN.money(b), 0);
+  }
+
+  function delta(cur, prev) {
+    if (!prev) return '<span class="delta na">no previous data</span>';
+    const p = Math.round((cur - prev) / prev * 100);
+    return '<span class="delta ' + (p >= 0 ? "up" : "down") + '">' + (p >= 0 ? "&#9650; " : "&#9660; ") + Math.abs(p) + "%</span>";
+  }
+
+  function draw() {
+    const all = getBookings(), list = all.filter(AN.valid);
+    const today = AN.startDay(Date.now()), now = Date.now();
+
+    $("s-total").textContent = inr(sum(list, 0, now + D * 3650));
+    $("s-paid").textContent = inr(sum(list, 0, now + D * 3650, true));
+    $("s-pend").textContent = inr(sum(list, 0, now + D * 3650) - sum(list, 0, now + D * 3650, true));
+    $("s-today").textContent = inr(sum(list, today, today + D));
+
+    // comparison cards
+    const mo = AN.months(2), wk = [today + D - 14 * D, today + D - 7 * D, today + D];
+    const pairs = [
+      ["Today vs yesterday", sum(list, today, today + D), sum(list, today - D, today)],
+      ["Last 7 days vs previous 7 days", sum(list, wk[1], wk[2]), sum(list, wk[0], wk[1])],
+      ["This month vs last month", sum(list, mo[1].from, mo[1].to), sum(list, mo[0].from, mo[0].to)]
+    ];
+    $("cmp").innerHTML = pairs.map(p =>
+      '<div class="card cmp"><div class="label">' + p[0] + '</div><div class="big">' + inr(p[1]) +
+      '</div><div class="prev">Before: ' + inr(p[2]) + "</div>" + delta(p[1], p[2]) + "</div>").join("");
+
+    // daily stacked: paid / pending
+    const ds = AN.days(14), lab = ds.map(AN.dlabel);
+    Charts.bar("c-daily", lab, [
+      { name: "Paid", values: ds.map(t => sum(list, t, t + D, true)) },
+      { name: "Pending", values: ds.map(t => sum(list, t, t + D) - sum(list, t, t + D, true)) }
+    ], { stack: true, fmt: inr });
+
+    // monthly
+    const ms = AN.months(6);
+    Charts.bar("c-month", ms.map(m => m.label), [
+      { name: "Booking amount", values: ms.map(m => sum(list, m.from, m.to)) }
+    ], { fmt: inr });
+
+    // weekly booked vs collected
+    const ws = AN.weeks(8);
+    Charts.bar("c-week", ws.map(AN.dlabel), [
+      { name: "Booked", values: ws.map(t => sum(list, t, t + 7 * D)) },
+      { name: "Collected", values: ws.map(t => sum(list, t, t + 7 * D, true)) }
+    ], { fmt: inr });
+
+    // by method
+    const methods = ["UPI", "Card", "Pay at exit"];
+    Charts.bar("c-method", methods, [
+      { name: "Amount", values: methods.map(m => list.filter(b => b.method === m).reduce((a, b) => a + AN.money(b), 0)) }
+    ], { fmt: inr });
+
+    // payment status table
+    const paid = list.filter(b => b.payStatus === "Paid"), pend = list.filter(b => b.payStatus !== "Paid");
+    const lost = all.filter(b => !AN.valid(b));
+    const tot = a => a.reduce((s, b) => s + AN.money(b), 0);
+    $("pay-rows").innerHTML =
+      '<tr><td><span class="chip free">PAID</span></td><td>' + paid.length + "</td><td>" + rupees(tot(paid)) + "</td></tr>" +
+      '<tr><td><span class="chip reserved">PENDING (pay at exit)</span></td><td>' + pend.length + "</td><td>" + rupees(tot(pend)) + "</td></tr>" +
+      '<tr><td><span class="chip full">CANCELLED / NO-SHOW</span></td><td>' + lost.length + "</td><td>Not counted</td></tr>";
+  }
+
+  AN.sampleButtons("sample", draw);
+  draw();
+  watchAdminBookings(draw);
+</script>
+</body>
+</html>

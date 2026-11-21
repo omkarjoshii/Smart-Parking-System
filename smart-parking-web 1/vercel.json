@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/smart-parking-web/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/smart-parking-web/$1"
+    }
+  ]
+}
+

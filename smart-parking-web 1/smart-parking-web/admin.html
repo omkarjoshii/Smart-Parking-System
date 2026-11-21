@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Dashboard - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    // keep non-admins out
+    if (sessionStorage.getItem("adcet_admin") !== "1") location.replace("admin-login.html");
+  </script>
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+    <div>
+      <h1 style="margin:0;font-size:24px">Admin Dashboard</h1>
+      <div class="status-line"><span class="dot" id="dot"></span><span id="conn">Connecting...</span></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn green" id="btn-toggle-scan" style="display:inline-flex;align-items:center;gap:6px">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 12h4M12 10v4"/></svg>
+        <span>Scan QR &amp; Verify Slot</span>
+      </button>
+      <a class="btn" href="analytics-overview.html">Analytics Overview</a>
+      <a class="btn" href="parking-analytics.html">Parking Analytics</a>
+      <a class="btn" href="revenue.html">Revenue Analytics</a>
+      <button class="btn secondary" id="logout">Logout</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Total slots</div><div class="value" id="s-total">-</div></div>
+    <div class="stat g"><div class="label">Available slots</div><div class="value" id="s-free">-</div></div>
+    <div class="stat r"><div class="label">Occupied slots</div><div class="value" id="s-occ">-</div></div>
+    <div class="stat b"><div class="label">Today's collection</div><div class="value" id="s-money">-</div></div>
+  </div>
+
+  <!-- QR Scanner & Slot Verification Module -->
+  <div class="card" id="scanner-section" style="margin-top:20px;border:2px solid #cbd5e1;background:#ffffff;box-shadow:0 4px 14px rgba(0,0,0,0.06)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;border-bottom:1.5px solid var(--line);padding-bottom:12px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:38px;height:38px;border-radius:10px;background:#fee2e2;color:#dc2626;display:flex;align-items:center;justify-content:center;font-size:20px;flex:none">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 12h4M12 10v4"/></svg>
+        </div>
+        <div>
+          <h2 style="margin:0;font-size:18px;color:#0f172a">QR Scanner &amp; User Slot Verification</h2>
+          <div style="font-size:12.5px;color:var(--muted)">Scan receipt QR code to verify user, check slot allocation &amp; automate entry/exit</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn small secondary" id="btn-toggle-scanner-view">Minimize</button>
+      </div>
+    </div>
+
+    <!-- Scanner Content Area -->
+    <div id="scanner-body">
+      <!-- Tabs for Scanner methods -->
+      <div class="scanner-tabs" style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap">
+        <button class="btn small tab-scan on" id="tab-btn-cam">&#128247; Camera Scanner</button>
+        <button class="btn small secondary tab-scan" id="tab-btn-file">&#128193; Upload QR Image</button>
+        <button class="btn small secondary tab-scan" id="tab-btn-manual">&#9000; Manual ID Entry</button>
+      </div>
+
+      <div class="scanner-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(310px, 1fr));gap:20px;align-items:start">
+        <!-- Left: Scanner input viewports -->
+        <div class="scanner-viewport-box" style="background:#0f172a;border-radius:12px;padding:14px;color:#fff;text-align:center;position:relative">
+          
+          <!-- Mode 1: Camera Feed -->
+          <div id="cam-view-wrap">
+            <div style="position:relative;width:100%;max-width:320px;margin:0 auto;aspect-ratio:4/3;background:#1e293b;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center">
+              <video id="qr-video" playsinline style="width:100%;height:100%;object-fit:cover;display:none"></video>
+              <canvas id="qr-canvas" style="display:none"></canvas>
+              <div id="cam-placeholder" style="padding:20px">
+                <div style="font-size:32px;margin-bottom:6px">&#128247;</div>
+                <div style="font-weight:600;font-size:14px">Camera is offline</div>
+                <div style="font-size:12px;color:#94a3b8;margin-top:4px">Click "Start Camera" to scan driver QR code live</div>
+              </div>
+              <!-- Target Viewfinder Overlay with Animated Laser -->
+              <div id="cam-overlay" style="display:none;position:absolute;inset:20px;border:2px dashed rgba(255,255,255,0.7);border-radius:10px;pointer-events:none">
+                <div class="laser-bar"></div>
+                <div class="scanner-corner corner tl"></div><div class="scanner-corner corner tr"></div>
+                <div class="scanner-corner corner bl"></div><div class="scanner-corner corner br"></div>
+              </div>
+            </div>
+            <div style="margin-top:12px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn small green" id="btn-start-cam">&#9654; Start Camera</button>
+              <button class="btn small grey" id="btn-stop-cam" style="display:none">&#9632; Stop Camera</button>
+              <select id="cam-select" style="display:none;background:#1e293b;color:#fff;border:1px solid #334155;border-radius:6px;font-size:12px;padding:4px 8px;max-width:140px"></select>
+            </div>
+            <div id="cam-status" style="font-size:12px;color:#94a3b8;margin-top:6px">Ready to scan driver receipt QR code</div>
+          </div>
+
+          <!-- Mode 2: File Upload (hidden by default) -->
+          <div id="file-view-wrap" style="display:none;padding:10px 0">
+            <div id="drop-zone" style="border:2px dashed #475569;border-radius:10px;padding:30px 16px;background:#1e293b;cursor:pointer">
+              <div style="font-size:36px;margin-bottom:8px">&#128229;</div>
+              <div style="font-weight:600;font-size:14px">Drop QR code image here</div>
+              <div style="font-size:12px;color:#94a3b8;margin-top:4px">or click to browse receipt photo/screenshot</div>
+              <input type="file" id="qr-file-input" accept="image/*" style="display:none">
+            </div>
+            <div id="file-preview-wrap" style="margin-top:10px;display:none">
+              <img id="file-preview-img" style="max-height:120px;border-radius:6px;border:1px solid #334155">
+            </div>
+          </div>
+
+          <!-- Mode 3: Manual Input (hidden by default) -->
+          <div id="manual-view-wrap" style="display:none;padding:14px 0">
+            <div style="font-size:13px;color:#cbd5e1;margin-bottom:10px">Enter Booking ID or paste scanned QR text:</div>
+            <div style="display:flex;gap:6px;max-width:280px;margin:0 auto">
+              <input type="text" id="manual-booking-input" placeholder="e.g. ADC261118-123" style="flex:1;background:#1e293b;border:1px solid #475569;color:#fff;text-transform:uppercase">
+              <button class="btn small green" id="btn-manual-verify">Verify</button>
+            </div>
+            <div style="font-size:11.5px;color:#94a3b8;margin-top:8px">Supports USB Barcode/QR scanners and keyboard entry.</div>
+          </div>
+        </div>
+
+        <!-- Right: Verification Result Card -->
+        <div id="verify-card-wrap">
+          <div id="verify-idle" style="background:#f8fafc;border:2px dashed var(--line);border-radius:12px;padding:36px 20px;text-align:center">
+            <div style="font-size:40px;color:var(--muted);margin-bottom:8px">&#128179;</div>
+            <h4 style="margin:0 0 6px;color:#0f172a">Awaiting QR Scan</h4>
+            <p style="margin:0;font-size:13px;color:var(--muted)">Scan customer QR code or enter booking ID to verify their assigned parking slot and authorize entry or exit.</p>
+          </div>
+
+          <div id="verify-active" style="display:none;background:#ffffff;border:2px solid #86efac;border-radius:12px;padding:18px 20px;box-shadow:var(--shadow-md)">
+            <!-- Verification header badge -->
+            <div id="verify-banner" style="display:flex;align-items:center;justify-content:space-between;border-bottom:1.5px solid var(--line);padding-bottom:12px;margin-bottom:14px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span id="verify-tick" style="width:26px;height:26px;border-radius:50%;background:#16a34a;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700">&#10003;</span>
+                <span id="verify-title" style="font-weight:800;font-size:16px;color:#0f172a">VERIFIED BOOKING</span>
+              </div>
+              <span id="verify-chip" class="chip blue">Booked</span>
+            </div>
+
+            <!-- Big Slot Callout -->
+            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div>
+                <div style="font-size:12px;font-weight:700;color:#15803d;letter-spacing:0.5px;text-transform:uppercase">Assigned Parking Bay</div>
+                <div style="font-size:13px;color:#334155;margin-top:2px">Please direct vehicle to this slot</div>
+              </div>
+              <div id="verify-slot-badge" style="background:#16a34a;color:#ffffff;font-size:24px;font-weight:900;padding:6px 18px;border-radius:8px;letter-spacing:0.5px">SLOT 1</div>
+            </div>
+
+            <!-- Grid of customer details -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px;margin-bottom:16px;background:#f8fafc;padding:12px;border-radius:8px;border:1px solid var(--line)">
+              <div><span style="color:var(--muted)">Booking ID:</span> <b id="v-id" style="font-family:monospace;color:#0f172a">-</b></div>
+              <div><span style="color:var(--muted)">Customer:</span> <b id="v-name" style="color:#0f172a">-</b></div>
+              <div><span style="color:var(--muted)">Vehicle:</span> <b id="v-veh" style="color:#0f172a">-</b></div>
+              <div><span style="color:var(--muted)">Mobile:</span> <b id="v-mob" style="color:#0f172a">-</b></div>
+              <div><span style="color:var(--muted)">Arrival:</span> <span id="v-arr">-</span></div>
+              <div><span style="color:var(--muted)">Exit:</span> <span id="v-exit">-</span></div>
+              <div><span style="color:var(--muted)">Payment:</span> <span id="v-pay">-</span></div>
+              <div><span style="color:var(--muted)">Amount:</span> <b id="v-amt" style="color:var(--red)">-</b></div>
+            </div>
+
+            <!-- Gate alert notice -->
+            <div id="gate-alert-box" style="display:none;margin-bottom:14px;background:#dcfce7;border:1.5px solid #86efac;color:#166534;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:700;align-items:center;gap:8px">
+              <span style="font-size:18px">&#128679;</span> <span id="gate-alert-text">Automatic Gate OPENED for Vehicle Entry</span>
+            </div>
+
+            <!-- Gate & Action Buttons -->
+            <div id="verify-actions-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;border-top:1.5px solid var(--line);padding-top:14px">
+              <div id="verify-dynamic-btns" style="display:flex;gap:8px;flex-wrap:wrap">
+                <!-- Action buttons injected based on booking status -->
+              </div>
+              <div style="display:flex;gap:6px">
+                <a id="v-view-receipt" class="btn small secondary" target="_blank">View Receipt</a>
+                <button class="btn small secondary" id="btn-scan-another">Scan Next</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-top:20px">
+    <div class="card">
+      <h3>Live slot status</h3>
+      <div id="bays"></div>
+      <div class="hint" id="demo-hint" style="display:none">
+        Demo mode: click a slot to switch it between free and occupied for testing.
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Sensors &amp; gate</h3>
+      <div class="row-kv"><span>ESP32</span><b id="k-esp">-</b></div>
+      <div class="row-kv"><span>Entrance sensor (IR5)</span><b id="k-ent">-</b></div>
+      <div class="row-kv"><span>Exit sensor (IR6)</span><b id="k-exit">-</b></div>
+      <div class="row-kv"><span>Gate</span><b id="k-gate">-</b></div>
+      <div class="row-kv"><span>Charge per hour</span><b id="k-rate"></b></div>
+    </div>
+  </div>
+
+  <h2 class="section">Bookings</h2>
+
+  <div class="toolbar">
+    <input id="search" placeholder="Search name, vehicle, ID...">
+    <select id="filter">
+      <option value="">All status</option>
+      <option>Booked</option>
+      <option>Active</option>
+      <option>Completed</option>
+      <option>Cancelled</option>
+      <option>No-show</option>
+    </select>
+    <div class="sp">
+      <button class="btn secondary small" id="csv">Download CSV</button>
+      <button class="btn secondary small" id="clear">Delete all</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Booking ID</th><th>Name / Mobile</th><th>Vehicle</th><th>Slot</th>
+          <th>Arrival</th><th>Exit</th><th>Payment</th><th>Amount</th><th>Status</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="hint" style="margin-top:8px">Bookings are stored in this browser (prototype). See the README for details.</div>
+
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/qrcode.min.js"></script>
+<script src="js/jsQR.min.js"></script>
+<script src="js/common.js"></script>
+<script>
+  renderHeader("admin");
+  renderSidebar("dashboard");
+  renderFooter();
+
+  const $ = id => document.getElementById(id);
+  let live = { slots: [false, false, false, false], online: false, demo: false };
+
+  $("s-total").textContent = CONFIG.TOTAL_SLOTS;
+  $("k-rate").textContent = rupees(CONFIG.RATE_PER_HOUR) + " / hour";
+
+  $("logout").addEventListener("click", () => {
+    sessionStorage.removeItem("adcet_admin");
+    sessionStorage.removeItem("adcet_admin_token");
+    location.href = "admin-login.html";
+  });
+
+  function sameDay(iso) {
+    return iso && new Date(iso).toDateString() === new Date().toDateString();
+  }
+
+  function todaysCollection() {
+    let sum = 0;
+    getBookings().forEach(b => {
+      if (b.status === "Completed") { if (sameDay(b.actualExit)) sum += b.finalAmount; }
+      else if ((b.status === "Booked" || b.status === "Active") && b.payStatus === "Paid" && sameDay(b.bookedAt)) sum += b.amount;
+    });
+    return sum;
+  }
+
+  function chip(s) {
+    const cls = { "Booked": "blue", "Active": "free", "Completed": "grey", "Cancelled": "full", "No-show": "reserved" }[s] || "grey";
+    return '<span class="chip ' + cls + '">' + esc(s) + "</span>";
+  }
+
+  function drawTable() {
+    const q = $("search").value.trim().toLowerCase();
+    const f = $("filter").value;
+    let list = getBookings().slice().sort((a, b) => new Date(b.bookedAt) - new Date(a.bookedAt));
+
+    list = list.filter(b => (!f || b.status === f) &&
+      (!q || (b.id + " " + b.name + " " + b.vehicle + " " + b.mobile).toLowerCase().includes(q)));
+
+    if (list.length === 0) {
+      $("rows").innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:26px">No bookings yet</td></tr>';
+      return;
+    }
+
+    $("rows").innerHTML = list.map(b => {
+      let acts = "";
+      acts += '<button class="btn small green" data-act="qr" data-id="' + b.id + '" title="Verify User & Slot QR">Verify QR</button>';
+      if (b.status === "Booked") {
+        acts += '<button class="btn small green" data-act="arrive" data-id="' + b.id + '">Arrived</button>';
+        acts += '<button class="btn small grey" data-act="cancel" data-id="' + b.id + '">Cancel</button>';
+      }
+      if (b.status === "Active") {
+        acts += '<button class="btn small blue" data-act="checkout" data-id="' + b.id + '">Check-out</button>';
+      }
+      acts += '<a class="btn small secondary" href="receipt.html?id=' + encodeURIComponent(b.id) + '">View</a>';
+      acts += '<button class="btn small secondary" data-act="delete" data-id="' + b.id + '">Delete</button>';
+
+      const amt = b.status === "Completed" ? b.finalAmount : b.amount;
+      return "<tr>" +
+        "<td><b>" + esc(b.id) + "</b></td>" +
+        "<td>" + esc(b.name) + "<br><span style='color:var(--muted)'>" + esc(b.mobile) + "</span></td>" +
+        "<td>" + esc(b.vehicle) + "<br><span style='color:var(--muted)'>" + esc(b.vtype) + "</span></td>" +
+        "<td><b style='color:#0f172a'>Slot " + b.slot + "</b></td>" +
+        "<td>" + fmtDateTime(b.arrival) + "</td>" +
+        "<td>" + fmtDateTime(b.actualExit || b.exit) + "</td>" +
+        "<td>" + esc(b.method) + "<br>" + (b.payStatus === "Paid" ? '<span class="chip free">PAID</span>' : '<span class="chip reserved">PENDING</span>') + "</td>" +
+        "<td>" + rupees(amt) + "</td>" +
+        "<td>" + chip(b.status) + "</td>" +
+        '<td><div class="acts">' + acts + "</div></td></tr>";
+    }).join("");
+  }
+
+  $("rows").addEventListener("click", async e => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const b = findBooking(id);
+    if (!b) return;
+
+    if (btn.dataset.act === "qr") {
+      verifyBookingById(id);
+      $("scanner-section").scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+    if (btn.dataset.act === "arrive") {
+      triggerArrival(id);
+    }
+    if (btn.dataset.act === "cancel") {
+      if (confirm("Cancel booking " + id + "?")) {
+        try { await updateBooking(id, { status: "Cancelled" }); }
+        catch (error) { reportBookingSyncError(error); }
+        if (currentVerifiedId === id) verifyBookingById(id);
+      }
+    }
+    if (btn.dataset.act === "checkout") {
+      triggerCheckout(id);
+    }
+    if (btn.dataset.act === "delete") {
+      if (confirm("Delete booking " + id + " permanently?")) {
+        try { await deleteBooking(id); }
+        catch (error) { reportBookingSyncError(error); }
+        if (currentVerifiedId === id) resetVerificationView();
+      }
+    }
+    refresh();
+  });
+
+  $("search").addEventListener("input", drawTable);
+  $("filter").addEventListener("change", drawTable);
+
+  $("clear").addEventListener("click", async () => {
+    if (confirm("Delete ALL bookings? This cannot be undone.")) {
+      try { await clearBookings(); }
+      catch (error) { reportBookingSyncError(error); return; }
+      resetVerificationView();
+      refresh();
+    }
+  });
+
+  $("csv").addEventListener("click", () => {
+    const head = ["Booking ID","Name","Mobile","Address","Vehicle","Type","Slot","Booked at","Arrival","Exit",
+                  "Actual arrival","Actual exit","Payment method","Payment status","Amount","Final amount","Status"];
+    const rows = getBookings().map(b => [b.id,b.name,b.mobile,b.address,b.vehicle,b.vtype,b.slot,b.bookedAt,
+      b.arrival,b.exit,b.actualArrival,b.actualExit,b.method,b.payStatus,b.amount,b.finalAmount,b.status]);
+    const csv = [head].concat(rows).map(r =>
+      r.map(v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "parking-bookings.csv";
+    a.click();
+  });
+
+  // demo mode: click a bay to flip it
+  $("bays").addEventListener("click", e => {
+    if (!live.demo) return;
+    const bay = e.target.closest(".bay");
+    if (!bay) return;
+    toggleDemoSlot(Number(bay.dataset.slot));
+    refresh();
+  });
+
+  // ---------- QR Scanner & User Slot Verification Logic ----------
+  let currentVerifiedId = null;
+  let videoStream = null;
+  let isScanning = false;
+  let animId = null;
+  let simulatedGateTimer = null;
+
+  function triggerSimulatedGate(direction = "ENTRY") {
+    $("k-gate").textContent = "OPEN (" + direction + ")";
+    $("k-gate").style.color = "#16a34a";
+    $("gate-alert-box").style.display = "flex";
+    $("gate-alert-text").textContent = "Automatic Gate OPENED for " + direction + "! Sensor verifying passage...";
+    clearTimeout(simulatedGateTimer);
+    simulatedGateTimer = setTimeout(() => {
+      $("k-gate").textContent = live.online ? (live.gate ? "OPEN" : "CLOSED") : "-";
+      $("k-gate").style.color = "";
+      $("gate-alert-box").style.display = "none";
+    }, 4500);
+  }
+
+  async function triggerArrival(id) {
+    const b = findBooking(id);
+    if (!b) return;
+    const now = new Date().toISOString();
+    try { await updateBooking(id, { status: "Active", actualArrival: now }); }
+    catch (error) { reportBookingSyncError(error); return; }
+    playBeep("success");
+    toast("Booking " + id + " verified! Slot " + b.slot + " occupied by " + b.vehicle);
+    triggerSimulatedGate("ENTRY");
+    verifyBookingById(id);
+    refresh();
+  }
+
+  async function triggerCheckout(id) {
+    const b = findBooking(id);
+    if (!b) return;
+    const now = new Date().toISOString();
+    const start = b.actualArrival || b.arrival;
+    const used = calcAmount(start, now);
+    const final = Math.max(b.amount, used);
+    const extra = final - b.amount;
+    let msg = "Check-out " + b.vehicle + " from Slot " + b.slot + "?\nTime parked: " + fmtDuration(start, now) +
+              "\nFinal amount: " + rupees(final);
+    if (b.payStatus === "Paid" && extra > 0) msg += "\nExtra charge to collect: " + rupees(extra);
+    if (b.payStatus !== "Paid") msg += "\nCollect total: " + rupees(final) + " from driver.";
+    if (confirm(msg)) {
+      try { await updateBooking(id, { status: "Completed", actualExit: now, finalAmount: final, payStatus: "Paid" }); }
+      catch (error) { reportBookingSyncError(error); return; }
+      playBeep("success");
+      toast("Check-out completed! Slot " + b.slot + " freed.");
+      triggerSimulatedGate("EXIT");
+      verifyBookingById(id);
+      refresh();
+    }
+  }
+
+  function verifyBookingById(id) {
+    const b = findBooking(id);
+    if (!b) {
+      toast("Booking " + id + " not found!");
+      return;
+    }
+    verifyBookingObject(b);
+  }
+
+  function verifyBookingObject(b) {
+    currentVerifiedId = b.id;
+    $("verify-idle").style.display = "none";
+    $("verify-active").style.display = "block";
+
+    $("v-id").textContent = b.id;
+    $("v-name").textContent = b.name;
+    $("v-veh").textContent = b.vehicle + " (" + (b.vtype || "Vehicle") + ")";
+    $("v-mob").textContent = b.mobile || "-";
+    $("v-arr").textContent = fmtDateTime(b.actualArrival || b.arrival);
+    $("v-exit").textContent = fmtDateTime(b.actualExit || b.exit);
+    $("v-pay").innerHTML = b.payStatus === "Paid"
+      ? '<span class="chip free">PAID</span>'
+      : '<span class="chip reserved">PAY AT EXIT</span>';
+    
+    const amt = b.status === "Completed" ? (b.finalAmount || b.amount) : b.amount;
+    $("v-amt").textContent = rupees(amt);
+
+    $("verify-slot-badge").textContent = "SLOT " + b.slot;
+    $("v-view-receipt").href = "receipt.html?id=" + encodeURIComponent(b.id);
+
+    // Style banner and status
+    const chipClass = { "Booked": "blue", "Active": "free", "Completed": "grey", "Cancelled": "full" }[b.status] || "grey";
+    $("verify-chip").className = "chip " + chipClass;
+    $("verify-chip").textContent = b.status;
+
+    const banner = $("verify-active");
+    const tick = $("verify-tick");
+    const title = $("verify-title");
+    const slotBadge = $("verify-slot-badge");
+
+    if (b.status === "Booked") {
+      banner.style.borderColor = "#86efac";
+      slotBadge.style.background = "#16a34a";
+      tick.style.background = "#16a34a";
+      tick.innerHTML = "&#10003;";
+      title.textContent = "VALID RESERVATION - READY FOR CHECK-IN";
+    } else if (b.status === "Active") {
+      banner.style.borderColor = "#60a5fa";
+      slotBadge.style.background = "#2563eb";
+      tick.style.background = "#2563eb";
+      tick.innerHTML = "&#128663;";
+      const parkedTime = fmtDuration(b.actualArrival || b.arrival, new Date().toISOString());
+      title.textContent = "ACTIVE IN PARKING (" + parkedTime + ")";
+    } else if (b.status === "Completed") {
+      banner.style.borderColor = "#cbd5e1";
+      slotBadge.style.background = "#475569";
+      tick.style.background = "#475569";
+      tick.innerHTML = "&#10004;";
+      title.textContent = "BOOKING COMPLETED (EXITED)";
+    } else {
+      banner.style.borderColor = "#fca5a5";
+      slotBadge.style.background = "#dc2626";
+      tick.style.background = "#dc2626";
+      tick.innerHTML = "&#10008;";
+      title.textContent = "BOOKING " + b.status.toUpperCase() + " - ENTRY DENIED";
+    }
+
+    // Dynamic buttons
+    const btnsWrap = $("verify-dynamic-btns");
+    btnsWrap.innerHTML = "";
+    if (b.status === "Booked") {
+      btnsWrap.innerHTML =
+        '<button class="btn green" id="v-btn-checkin" style="font-weight:700">&#10003; Verify &amp; Open Gate (Check-In)</button>' +
+        '<button class="btn grey small" id="v-btn-cancel">Cancel</button>';
+      $("v-btn-checkin").addEventListener("click", () => triggerArrival(b.id));
+      $("v-btn-cancel").addEventListener("click", async () => {
+        if (confirm("Cancel booking " + b.id + "?")) {
+          try { await updateBooking(b.id, { status: "Cancelled" }); }
+          catch (error) { reportBookingSyncError(error); return; }
+          verifyBookingById(b.id);
+          refresh();
+        }
+      });
+    } else if (b.status === "Active") {
+      btnsWrap.innerHTML =
+        '<button class="btn blue" id="v-btn-checkout" style="font-weight:700">&#128663; Verify Check-Out &amp; Free Slot</button>';
+      $("v-btn-checkout").addEventListener("click", () => triggerCheckout(b.id));
+    }
+  }
+
+  function resetVerificationView() {
+    currentVerifiedId = null;
+    $("verify-idle").style.display = "block";
+    $("verify-active").style.display = "none";
+    $("gate-alert-box").style.display = "none";
+  }
+
+  $("btn-scan-another").addEventListener("click", () => {
+    resetVerificationView();
+    if (!isScanning) startCamera();
+  });
+
+  function handleScannedCode(raw) {
+    if (!raw) return;
+    const parsed = parseBookingQRData(raw);
+    if (!parsed) {
+      playBeep("error");
+      toast("Invalid QR code format. Not recognized as an ADCET pass.");
+      return;
+    }
+
+    // Import or find booking
+    let b = findBooking(parsed.id);
+    if (!b && parsed.vehicle) {
+      b = importBookingFromQR(parsed);
+      toast("Imported new booking " + b.id + " from scanned QR pass!");
+      refresh();
+    }
+
+    if (!b) {
+      playBeep("error");
+      toast("Booking " + (parsed.id || "ID") + " not found in database.");
+      return;
+    }
+
+    playBeep("success");
+    toast("Verified Driver: " + b.name + " (" + b.vehicle + ")");
+    verifyBookingObject(b);
+  }
+
+  // Camera Management
+  const video = $("qr-video");
+  const canvas = $("qr-canvas");
+  const camCtx = canvas.getContext("2d", { willReadFrequently: true });
+
+  async function populateCameras() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === "videoinput");
+      const sel = $("cam-select");
+      sel.innerHTML = "";
+      videoDevices.forEach((d, i) => {
+        const opt = document.createElement("option");
+        opt.value = d.deviceId;
+        opt.textContent = d.label || ("Camera " + (i + 1));
+        sel.appendChild(opt);
+      });
+      if (videoDevices.length > 1) sel.style.display = "inline-block";
+    } catch (e) {}
+  }
+
+  async function startCamera(deviceId) {
+    stopCamera();
+    try {
+      $("cam-status").textContent = "Requesting camera access...";
+      const constraints = {
+        video: deviceId
+          ? { deviceId: { exact: deviceId } }
+          : { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } }
+      };
+      videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = videoStream;
+      video.setAttribute("playsinline", true);
+      await video.play();
+
+      video.style.display = "block";
+      $("cam-placeholder").style.display = "none";
+      $("cam-overlay").style.display = "block";
+      $("btn-start-cam").style.display = "none";
+      $("btn-stop-cam").style.display = "inline-block";
+      $("cam-status").textContent = "Scanning active - hold QR code in frame";
+      isScanning = true;
+      populateCameras();
+      scanLoop();
+    } catch (err) {
+      console.warn("Camera access failed:", err);
+      $("cam-status").textContent = "Camera unavailable: " + (err.message || "Please allow permissions or use upload");
+      toast("Camera unavailable. You can use 'Upload QR Image' or 'Manual ID'.");
+    }
+  }
+
+  function stopCamera() {
+    isScanning = false;
+    if (animId) cancelAnimationFrame(animId);
+    if (videoStream) {
+      videoStream.getTracks().forEach(t => t.stop());
+      videoStream = null;
+    }
+    video.style.display = "none";
+    $("cam-placeholder").style.display = "block";
+    $("cam-overlay").style.display = "none";
+    $("btn-start-cam").style.display = "inline-block";
+    $("btn-stop-cam").style.display = "none";
+    $("cam-status").textContent = "Camera stopped";
+  }
+
+  function scanLoop() {
+    if (!isScanning) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      camCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imgData = camCtx.getImageData(0, 0, canvas.width, canvas.height);
+      if (typeof jsQR !== "undefined") {
+        const code = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
+        if (code && code.data) {
+          handleScannedCode(code.data);
+          // Briefly pause scanning so it doesn't repeatedly fire
+          setTimeout(() => { if (isScanning) requestAnimationFrame(scanLoop); }, 1800);
+          return;
+        }
+      }
+    }
+    animId = requestAnimationFrame(scanLoop);
+  }
+
+  $("btn-start-cam").addEventListener("click", () => startCamera($("cam-select").value));
+  $("btn-stop-cam").addEventListener("click", stopCamera);
+  $("cam-select").addEventListener("change", e => startCamera(e.target.value));
+
+  // Switch tabs
+  const tabBtnCam = $("tab-btn-cam");
+  const tabBtnFile = $("tab-btn-file");
+  const tabBtnManual = $("tab-btn-manual");
+  const camWrap = $("cam-view-wrap");
+  const fileWrap = $("file-view-wrap");
+  const manualWrap = $("manual-view-wrap");
+
+  function setScanTab(tab) {
+    [tabBtnCam, tabBtnFile, tabBtnManual].forEach(b => {
+      b.classList.remove("on");
+      b.classList.add("secondary");
+    });
+    camWrap.style.display = "none";
+    fileWrap.style.display = "none";
+    manualWrap.style.display = "none";
+
+    if (tab === "cam") {
+      tabBtnCam.classList.add("on");
+      tabBtnCam.classList.remove("secondary");
+      camWrap.style.display = "block";
+    } else if (tab === "file") {
+      tabBtnFile.classList.add("on");
+      tabBtnFile.classList.remove("secondary");
+      fileWrap.style.display = "block";
+      stopCamera();
+    } else if (tab === "manual") {
+      tabBtnManual.classList.add("on");
+      tabBtnManual.classList.remove("secondary");
+      manualWrap.style.display = "block";
+      stopCamera();
+      $("manual-booking-input").focus();
+    }
+  }
+
+  tabBtnCam.addEventListener("click", () => { setScanTab("cam"); startCamera(); });
+  tabBtnFile.addEventListener("click", () => setScanTab("file"));
+  tabBtnManual.addEventListener("click", () => setScanTab("manual"));
+
+  // File Upload scanning
+  const dropZone = $("drop-zone");
+  const fileInput = $("qr-file-input");
+  dropZone.addEventListener("click", () => fileInput.click());
+
+  dropZone.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropZone.style.borderColor = "#ef4444";
+  });
+  dropZone.addEventListener("dragleave", () => {
+    dropZone.style.borderColor = "#475569";
+  });
+  dropZone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropZone.style.borderColor = "#475569";
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processUploadedFile(e.dataTransfer.files[0]);
+    }
+  });
+  fileInput.addEventListener("change", e => {
+    if (e.target.files && e.target.files[0]) {
+      processUploadedFile(e.target.files[0]);
+    }
+  });
+
+  function processUploadedFile(file) {
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const img = new Image();
+      img.onload = () => {
+        $("file-preview-wrap").style.display = "block";
+        $("file-preview-img").src = img.src;
+
+        const offCanvas = document.createElement("canvas");
+        offCanvas.width = img.width;
+        offCanvas.height = img.height;
+        const ctx = offCanvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, img.width, img.height);
+        if (typeof jsQR !== "undefined") {
+          const code = jsQR(imgData.data, imgData.width, imgData.height);
+          if (code && code.data) {
+            handleScannedCode(code.data);
+          } else {
+            playBeep("error");
+            toast("No readable QR code found in this image. Please ensure photo is sharp and unblurred.");
+          }
+        }
+      };
+      img.src = evt.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Manual input verify
+  $("btn-manual-verify").addEventListener("click", () => {
+    const txt = $("manual-booking-input").value.trim();
+    if (!txt) return;
+    handleScannedCode(txt);
+  });
+  $("manual-booking-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+      const txt = $("manual-booking-input").value.trim();
+      if (txt) handleScannedCode(txt);
+    }
+  });
+
+  // Toggle buttons
+  $("btn-toggle-scan").addEventListener("click", () => {
+    const sec = $("scanner-section");
+    sec.scrollIntoView({ behavior: "smooth" });
+    setScanTab("cam");
+    startCamera();
+  });
+
+  $("btn-toggle-scanner-view").addEventListener("click", () => {
+    const body = $("scanner-body");
+    const btn = $("btn-toggle-scanner-view");
+    if (body.style.display === "none") {
+      body.style.display = "block";
+      btn.textContent = "Minimize";
+    } else {
+      body.style.display = "none";
+      btn.textContent = "Expand";
+      stopCamera();
+    }
+  });
+
+  // URL query params on load: ?scan=1 or ?verify=ADC...
+  const urlParams = new URLSearchParams(location.search);
+  if (urlParams.get("scan") === "1") {
+    setTimeout(() => {
+      $("scanner-section").scrollIntoView({ behavior: "smooth" });
+      setScanTab("cam");
+      startCamera();
+    }, 400);
+  }
+  if (urlParams.get("verify")) {
+    setTimeout(() => {
+      verifyBookingById(urlParams.get("verify"));
+      $("scanner-section").scrollIntoView({ behavior: "smooth" });
+    }, 300);
+  }
+
+  async function refresh() {
+    try { await syncAdminBookings(); }
+    catch (e) { reportBookingSyncError(e); }
+    live = await fetchLive();
+    renderBays("bays", live, live.demo);
+
+    const free = freeCount(live);
+    $("s-free").textContent = free;
+    $("s-occ").textContent = live.slots.filter(Boolean).length;
+    $("s-money").textContent = rupees(todaysCollection());
+
+    $("dot").className = "dot " + (live.online ? "on" : "off");
+    $("conn").textContent = live.online ? "ESP32 connected - live data"
+      : (live.demo ? "ESP32 not reachable - demo mode" : "ESP32 not reachable");
+    $("demo-hint").style.display = live.demo ? "" : "none";
+
+    $("k-esp").textContent = live.online ? "ONLINE" : "OFFLINE";
+    $("k-ent").textContent = live.online ? (live.entrance ? "DETECTED" : "CLEAR") : "-";
+    $("k-exit").textContent = live.online ? (live.exit ? "DETECTED" : "CLEAR") : "-";
+    if (!simulatedGateTimer) {
+      $("k-gate").textContent = live.online ? (live.gate ? "OPEN" : "CLOSED") : "-";
+    }
+
+    drawTable();
+  }
+
+  refresh();
+  setInterval(refresh, CONFIG.POLL_MS);
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+/* Extra styles for the analytics pages. Loaded after css/style.css */
+.an-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.an-head h1 { margin: 0; font-size: 24px; color: #0f172a; font-weight: 800; }
+.an-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.an-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; margin-top: 18px; }
+.an-grid .card { min-width: 0; overflow: hidden; }
+.an-grid .card h3 { margin-top: 0; }
+.chart-legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--muted); margin-top: 8px; justify-content: center; }
+.chart-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 18px; }
+.cmp .big { font-size: 24px; font-weight: 800; color: #0f172a; }
+.cmp .prev { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.delta { font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; display: inline-block; margin-top: 6px; }
+.delta.up { background: #dcfce7; color: #16a34a; }
+.delta.down { background: #fee2e2; color: #dc2626; }
+.delta.na { background: #f1f5f9; color: var(--muted); }
+.an-note { font-size: 12.5px; color: var(--muted); margin-top: 16px; }
+@media print { .an-actions, #site-header, #site-footer { display: none; } }

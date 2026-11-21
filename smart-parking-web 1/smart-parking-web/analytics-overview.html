@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analytics Overview - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/analytics.css">
+  <script>
+    if (sessionStorage.getItem("adcet_admin") !== "1") location.replace("admin-login.html");
+  </script>
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+
+  <div class="an-head">
+    <div>
+      <h1>Analytics Overview</h1>
+      <div class="status-line"><span class="dot" id="dot"></span><span id="conn">Connecting...</span></div>
+    </div>
+    <div class="an-actions">
+      <span id="sample"></span>
+      <button class="btn secondary small" onclick="window.print()">Print</button>
+      <a class="btn secondary small" href="live-monitoring.html">Live Monitoring</a>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Total parking slots</div><div class="value" id="s-total">-</div></div>
+    <div class="stat g"><div class="label">Available slots</div><div class="value" id="s-free">-</div></div>
+    <div class="stat r"><div class="label">Occupied slots</div><div class="value" id="s-occ">-</div></div>
+    <div class="stat b"><div class="label">Parking occupancy percentage</div><div class="value" id="s-pct">-</div><div class="sub" id="s-pct-sub"></div></div>
+  </div>
+
+  <div class="stats" style="margin-top:14px">
+    <div class="stat b"><div class="label">Total bookings</div><div class="value" id="s-book">-</div></div>
+    <div class="stat g"><div class="label">Confirmed bookings</div><div class="value" id="s-conf">-</div></div>
+    <div class="stat r"><div class="label">Cancelled bookings</div><div class="value" id="s-canc">-</div><div class="sub">includes no-shows</div></div>
+    <div class="stat"><div class="label">Bookings made today</div><div class="value" id="s-today">-</div></div>
+  </div>
+
+  <div class="an-grid">
+    <div class="card"><h3>Occupied and available slots (right now)</h3><div id="c-donut"></div></div>
+    <div class="card"><h3>Confirmed and cancelled bookings</h3><div id="c-status"></div></div>
+    <div class="card"><h3>Booking trends (bookings made per day, last 14 days)</h3><div id="c-trend"></div></div>
+    <div class="card"><h3>Booking trends (bookings per month, last 6 months)</h3><div id="c-month"></div></div>
+    <div class="card"><h3>Parking occupancy percentage (daily, last 14 days)</h3><div id="c-occ"></div></div>
+    <div class="card"><h3>Latest bookings</h3><div id="recent"></div></div>
+  </div>
+
+  <h2 class="section">More analytics</h2>
+  <div class="quick">
+    <a href="parking-analytics.html"><b>Parking Analytics</b><span>Usage, peak hours, most-used slots</span></a>
+    <a href="live-monitoring.html"><b>Live Monitoring</b><span>ESP32, sensors and gate</span></a>
+    <a href="booking-reports.html"><b>Booking Reports</b><span>All bookings with search and filters</span></a>
+    <a href="revenue.html"><b>Revenue Analytics</b><span>Booking amount and payment status</span></a>
+    <a href="reports-downloads.html"><b>Reports &amp; Downloads</b><span>Daily, weekly, monthly - PDF / Excel</span></a>
+    <a href="settings.html"><b>System Settings</b><span>Slots, charges, profile, ESP32</span></a>
+  </div>
+
+  <div class="an-note">Confirmed = Booked, Active or Completed. Cancelled = Cancelled or No-show. Slot numbers come live from the ESP32 sensors (demo data if the ESP32 is not reachable). Occupancy history is calculated from booking times. Bookings are stored in this browser (prototype).</div>
+
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/analytics.js"></script>
+<script>
+  renderHeader("admin");
+  renderSidebar("overview");
+  renderFooter();
+
+  const $ = id => document.getElementById(id);
+  const D = AN.DAY, SLOTS = CONFIG.TOTAL_SLOTS;
+  const cnt = v => Math.round(v);
+  let liveNow = null;
+
+  function drawLive() {
+    if (!liveNow) return;
+    const occ = liveNow.slots.filter(Boolean).length, free = freeCount(liveNow);
+    const closed = SLOTS - occ - free;
+    $("s-total").textContent = SLOTS;
+    $("s-free").textContent = free;
+    $("s-occ").textContent = occ;
+    $("s-pct").textContent = Math.round(occ / SLOTS * 100) + "%";
+    const parts = [{ name: "Occupied", value: occ, color: "#dc2626" }, { name: "Available", value: free, color: "#16a34a" }];
+    if (closed > 0) parts.push({ name: "Closed", value: closed, color: "#94a3b8" });
+    Charts.donut("c-donut", parts, Math.round(occ / SLOTS * 100) + "%");
+    $("dot").className = "dot " + (liveNow.online ? "on" : "off");
+    $("conn").textContent = liveNow.online ? "ESP32 connected - live data" : "ESP32 not reachable - showing demo data";
+  }
+
+  function chip(s) {
+    const cls = { "Booked": "blue", "Active": "free", "Completed": "grey", "Cancelled": "full", "No-show": "reserved" }[s] || "grey";
+    return '<span class="chip ' + cls + '">' + esc(s) + "</span>";
+  }
+
+  function draw() {
+    const all = getBookings(), ok = all.filter(AN.valid), bad = all.filter(AN.isCancelled);
+    const today = AN.startDay(Date.now());
+
+    $("s-book").textContent = all.length;
+    $("s-conf").textContent = ok.length;
+    $("s-canc").textContent = bad.length;
+    $("s-today").textContent = all.filter(b => new Date(b.bookedAt).getTime() >= today).length;
+
+    // confirmed vs cancelled
+    Charts.donut("c-status", [
+      { name: "Confirmed", value: ok.length, color: "#16a34a" },
+      { name: "Cancelled / No-show", value: bad.length, color: "#dc2626" }
+    ], all.length ? Math.round(ok.length / all.length * 100) + "%" : "-");
+
+    // booking trends
+    const ds = AN.days(14), lab = ds.map(AN.dlabel);
+    const made = (list, from, to) => list.filter(b => { const t = new Date(b.bookedAt).getTime(); return t >= from && t < to; }).length;
+    Charts.bar("c-trend", lab, [
+      { name: "Confirmed", values: ds.map(t => made(ok, t, t + D)) },
+      { name: "Cancelled", values: ds.map(t => made(bad, t, t + D)) }
+    ], { stack: true, fmt: cnt });
+
+    const ms = AN.months(6);
+    Charts.bar("c-month", ms.map(m => m.label), [
+      { name: "Confirmed", values: ms.map(m => made(ok, m.from, m.to)) },
+      { name: "Cancelled", values: ms.map(m => made(bad, m.from, m.to)) }
+    ], { stack: true, fmt: cnt });
+
+    // occupancy from booking times
+    const used = ok.filter(b => AN.span(b));
+    const occ = ds.map(t => AN.usageHours(used, t, t + D) / 24 / SLOTS * 100);
+    Charts.line("c-occ", lab, occ, { fmt: v => Math.round(v) + "%", max: 100 });
+    $("s-pct-sub").textContent = "Today from bookings: " + Math.round(occ[occ.length - 1]) + "%";
+
+    // latest bookings
+    const last = all.slice().sort((a, b) => new Date(b.bookedAt) - new Date(a.bookedAt)).slice(0, 6);
+    $("recent").innerHTML = last.length
+      ? '<div class="table-wrap"><table class="data"><thead><tr><th>ID</th><th>Vehicle</th><th>Slot</th><th>Status</th></tr></thead><tbody>' +
+        last.map(b => "<tr><td>" + esc(b.id) + "</td><td>" + esc(b.vehicle) + "</td><td>" + b.slot + "</td><td>" + chip(b.status) + "</td></tr>").join("") + "</tbody></table></div>"
+      : '<div class="hint">No bookings yet. Make a booking, or use "Load sample data".</div>';
+  }
+
+  async function live() { liveNow = await fetchLive(); drawLive(); }
+
+  AN.sampleButtons("sample", draw);
+  draw();
+  watchAdminBookings(draw);
+  live();
+  setInterval(live, CONFIG.POLL_MS);
+</script>
+</body>
+</html>

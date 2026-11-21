@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Booking Reports - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/analytics.css">
+  <script>
+    if (sessionStorage.getItem("adcet_admin") !== "1") location.replace("admin-login.html");
+  </script>
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+
+  <div class="an-head">
+    <h1>Booking Reports</h1>
+    <div class="an-actions">
+      <span id="sample"></span>
+      <button class="btn secondary small" id="x-xlsx">Export Excel</button>
+      <button class="btn secondary small" id="x-csv">Export CSV</button>
+      <button class="btn secondary small" onclick="window.print()">Print</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-g="all"><span>All booking records</span><b id="t-all">0</b></button>
+    <button class="tab" data-g="confirmed"><span>Confirmed bookings</span><b id="t-conf">0</b></button>
+    <button class="tab" data-g="pending"><span>Pending bookings (payment due)</span><b id="t-pend">0</b></button>
+    <button class="tab" data-g="cancelled"><span>Cancelled bookings</span><b id="t-canc">0</b></button>
+  </div>
+
+  <div class="toolbar">
+    <input id="search" placeholder="Search booking ID, vehicle number, name...">
+    <select id="status">
+      <option value="">All status</option>
+      <option>Booked</option><option>Active</option><option>Completed</option><option>Cancelled</option><option>No-show</option>
+    </select>
+    <select id="slot"><option value="">All slots</option></select>
+    <select id="pay">
+      <option value="">All payments</option><option>Paid</option><option>Pending</option>
+    </select>
+    <label style="margin:0;display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px">From <input type="date" id="from" style="min-width:140px"></label>
+    <label style="margin:0;display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px">To <input type="date" id="to" style="min-width:140px"></label>
+    <button class="btn secondary small" id="reset">Clear filters</button>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data nw">
+      <thead>
+        <tr>
+          <th>Booking ID</th><th>Vehicle number</th><th>Name</th><th>Booking date</th><th>Slot</th>
+          <th>Arrival</th><th>Exit</th><th>Duration</th><th>Amount</th><th>Payment</th><th>Booking status</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="actions no-print" style="justify-content:center"><button class="btn secondary small" id="more" style="display:none">Show more</button></div>
+  <div class="hint" id="count"></div>
+  <div class="an-note">Confirmed = Booked, Active or Completed. Pending = a confirmed booking whose payment is still due (pay at exit). Cancelled = Cancelled or No-show. Booking date is the day the booking was made. Duration is the actual time parked once completed, otherwise the booked time. Bookings are stored in this browser (prototype).</div>
+
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/export.js"></script>
+<script src="js/analytics.js"></script>
+<script>
+  renderHeader("admin");
+  renderSidebar("bookings");
+  renderFooter();
+
+  const $ = id => document.getElementById(id);
+  let group = "all", shown = 100, current = [];
+
+  for (let i = 1; i <= CONFIG.TOTAL_SLOTS; i++) $("slot").insertAdjacentHTML("beforeend", "<option value='" + i + "'>Slot " + i + "</option>");
+
+  function chip(s) {
+    const cls = { "Booked": "blue", "Active": "free", "Completed": "grey", "Cancelled": "full", "No-show": "reserved" }[s] || "grey";
+    return '<span class="chip ' + cls + '">' + esc(s) + "</span>";
+  }
+  const amount = b => b.status === "Completed" ? (b.finalAmount || b.amount) : b.amount;
+  const duration = b => {
+    const p = AN.span(b);
+    return p ? fmtDuration(p[0], p[1]) : (b.hours ? b.hours + " h" : "-");
+  };
+  const day = d => d ? new Date(d + "T00:00:00").getTime() : null;
+
+  function matches(b, ignoreGroup) {
+    const q = $("search").value.trim().toLowerCase();
+    if (q && !(b.id + " " + b.vehicle + " " + b.name + " " + b.mobile).toLowerCase().includes(q)) return false;
+    if ($("status").value && b.status !== $("status").value) return false;
+    if ($("slot").value && Number(b.slot) !== Number($("slot").value)) return false;
+    if ($("pay").value && b.payStatus !== $("pay").value) return false;
+    const f = day($("from").value), t = day($("to").value), at = new Date(b.bookedAt).getTime();
+    if (f != null && at < f) return false;
+    if (t != null && at >= t + AN.DAY) return false;
+    if (ignoreGroup) return true;
+    if (group === "confirmed") return AN.valid(b);
+    if (group === "pending") return AN.isPending(b);
+    if (group === "cancelled") return AN.isCancelled(b);
+    return true;
+  }
+
+  function draw() {
+    const all = getBookings().slice().sort((a, b) => new Date(b.bookedAt) - new Date(a.bookedAt));
+    const base = all.filter(b => matches(b, true));        // counts follow the other filters
+    $("t-all").textContent = base.length;
+    $("t-conf").textContent = base.filter(AN.valid).length;
+    $("t-pend").textContent = base.filter(AN.isPending).length;
+    $("t-canc").textContent = base.filter(AN.isCancelled).length;
+
+    current = all.filter(b => matches(b, false));
+    const list = current.slice(0, shown);
+    $("rows").innerHTML = list.length ? list.map(b =>
+      "<tr><td><a href='receipt.html?id=" + encodeURIComponent(b.id) + "' title='View QR Pass' style='font-weight:700;color:var(--red);text-decoration:none'>" + esc(b.id) + "</a> " +
+      "<a href='admin.html?verify=" + encodeURIComponent(b.id) + "' class='btn small green' style='padding:2px 7px;font-size:11px;text-decoration:none' title='Verify user in Gate Scanner'>Verify</a></td>" +
+      "<td>" + esc(b.vehicle) + "<br><span style='color:var(--muted)'>" + esc(b.vtype) + "</span></td>" +
+      "<td>" + esc(b.name) + "</td><td>" + fmtDateTime(b.bookedAt) + "</td><td><b>Slot " + b.slot + "</b></td>" +
+      "<td>" + fmtDateTime(b.actualArrival || b.arrival) + "</td><td>" + fmtDateTime(b.actualExit || b.exit) + "</td>" +
+      "<td>" + duration(b) + "</td><td>" + rupees(amount(b)) + "</td>" +
+      "<td>" + esc(b.method) + "<br>" + (b.payStatus === "Paid" ? '<span class="chip free">PAID</span>' : '<span class="chip reserved">PENDING</span>') + "</td>" +
+      "<td>" + chip(b.status) + "</td></tr>").join("")
+      : '<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:26px">No bookings found. Change the filters, or use "Load sample data".</td></tr>';
+
+    $("more").style.display = current.length > shown ? "" : "none";
+    $("count").textContent = "Showing " + list.length + " of " + current.length + " booking(s).";
+  }
+
+  function tableRows() {
+    return [["Booking ID", "Vehicle number", "Name", "Mobile", "Vehicle type", "Slot", "Booking date", "Arrival", "Exit", "Duration", "Amount (Rs.)", "Payment method", "Payment status", "Booking status"]]
+      .concat(current.map(b => [b.id, b.vehicle, b.name, b.mobile, b.vtype, "Slot " + b.slot, fmtDateTime(b.bookedAt),
+        fmtDateTime(b.actualArrival || b.arrival), fmtDateTime(b.actualExit || b.exit), duration(b), amount(b), b.method, b.payStatus, b.status]));
+  }
+  const stamp = () => new Date().toISOString().slice(0, 10);
+
+  $("x-xlsx").addEventListener("click", () => {
+    if (!current.length) { toast("Nothing to export - no bookings match."); return; }
+    Export.xlsx("booking-report-" + stamp() + ".xlsx", [{ name: "Bookings", rows: tableRows() }]);
+  });
+  $("x-csv").addEventListener("click", () => {
+    if (!current.length) { toast("Nothing to export - no bookings match."); return; }
+    Export.csv("booking-report-" + stamp() + ".csv", tableRows());
+  });
+
+  $("tabs").addEventListener("click", e => {
+    const t = e.target.closest(".tab");
+    if (!t) return;
+    group = t.dataset.g; shown = 100;
+    document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+    draw();
+  });
+  ["search", "status", "slot", "pay", "from", "to"].forEach(id => $(id).addEventListener("input", () => { shown = 100; draw(); }));
+  $("reset").addEventListener("click", () => {
+    ["search", "status", "slot", "pay", "from", "to"].forEach(id => { $(id).value = ""; });
+    shown = 100; draw();
+  });
+  $("more").addEventListener("click", () => { shown += 100; draw(); });
+
+  AN.sampleButtons("sample", draw);
+  draw();
+  watchAdminBookings(draw);
+</script>
+</body>
+</html>

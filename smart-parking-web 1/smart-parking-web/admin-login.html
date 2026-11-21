@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Login - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+  <div class="card login-box">
+    
+    <div class="logo"><img src="images/adcet-logo.png" alt="ADCET"></div>
+    <h2>Admin Login</h2>
+    <p class="sub">Smart Parking Management</p>
+
+    <form id="form">
+      <label for="user">User ID</label>
+      <input id="user" autocomplete="username" autofocus>
+
+      <label for="pass" style="margin-top:14px">Password</label>
+      <input id="pass" type="password" autocomplete="current-password">
+
+      <div class="error" id="err"></div>
+      <button class="btn" style="width:100%" type="submit">Login</button>
+    </form>
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script>
+  renderHeader("admin");
+  renderFooter();
+
+  if (sessionStorage.getItem("adcet_admin_token")) {
+    location.replace("admin.html");
+  }
+
+  document.getElementById("form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const u = document.getElementById("user").value.trim();
+    const p = document.getElementById("pass").value;
+    const button = document.querySelector('#form button[type="submit"]');
+    const error = document.getElementById("err");
+    error.textContent = "";
+    button.disabled = true;
+    try {
+      const result = await bookingApi("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user: u, password: p })
+      });
+      sessionStorage.setItem("adcet_admin_token", result.token);
+      sessionStorage.setItem("adcet_admin", "1");
+      location.href = "admin.html";
+    } catch (e) {
+      error.textContent = e.message === "Wrong user ID or password."
+        ? e.message
+        : "Unable to connect to the booking server. Start the website server and try again.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

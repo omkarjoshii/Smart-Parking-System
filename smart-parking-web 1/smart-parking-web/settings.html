@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>System Settings - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/analytics.css">
+  <script>
+    if (sessionStorage.getItem("adcet_admin") !== "1") location.replace("admin-login.html");
+  </script>
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+
+  <div class="an-head">
+    <h1>System Settings</h1>
+  </div>
+
+  <div class="set-grid">
+
+    <div class="card" id="slots">
+      <h3><em>1</em> Parking slot configuration</h3>
+      <div class="row-kv"><span>Total parking slots</span><b id="f-total"></b></div>
+      <div id="slot-list"></div>
+      <div class="hint">The number of slots is fixed by the IR sensors on the ESP32. A closed slot cannot be booked and shows as CLOSED on the website.</div>
+      <div class="actions"><span></span><button class="btn" id="save-slots">Save slots</button></div>
+    </div>
+
+    <div class="card" id="charges">
+      <h3><em>2</em> Parking charges</h3>
+      <label for="rate">Charge per hour (&#8377;)</label>
+      <input id="rate" type="number" min="0" step="1">
+      <div class="row-kv" style="margin-top:10px"><span>Minimum billed time</span><b>1 hour</b></div>
+      <div class="row-kv"><span>Billing</span><b>Rounded up to the next hour</b></div>
+      <div class="error" id="err-rate"></div>
+      <div class="hint">New charge applies to new bookings. Existing bookings keep their amount.</div>
+      <div class="actions"><span></span><button class="btn" id="save-rate">Save charge</button></div>
+    </div>
+
+    <div class="card" id="profile">
+      <h3><em>3</em> Admin profile</h3>
+      <div class="field-row">
+        <div><label for="a-name">Name</label><input id="a-name"></div>
+        <div><label for="a-user">User ID</label><input id="a-user" disabled></div>
+        <div><label for="a-email">Email</label><input id="a-email" type="email"></div>
+        <div><label for="a-mobile">Mobile</label><input id="a-mobile" inputmode="numeric" maxlength="10"></div>
+      </div>
+      <div class="error" id="err-prof"></div>
+      <div class="actions"><span></span><button class="btn" id="save-prof">Save profile</button></div>
+      <hr style="border:0;border-top:1px dashed var(--line);margin:16px 0">
+      <h3 style="font-size:14px">Change password</h3>
+      <div class="field-row">
+        <div><label for="p-old">Current password</label><input id="p-old" type="password" autocomplete="current-password"></div>
+        <div><label for="p-new">New password (min 6 characters)</label><input id="p-new" type="password" autocomplete="new-password"></div>
+      </div>
+      <div class="error" id="err-pass"></div>
+      <div class="actions"><span></span><button class="btn secondary" id="save-pass">Change password</button></div>
+    </div>
+
+    <div class="card" id="esp32">
+      <h3><em>4</em> ESP32 connection information</h3>
+      <label for="e-url">ESP32 data address</label>
+      <input id="e-url" placeholder="http://<ESP32 IP address>/data">
+      <div class="field-row" style="margin-top:12px">
+        <div><label for="e-ssid">Wi-Fi network name</label><input id="e-ssid"></div>
+        <div><label for="e-poll">Refresh every (seconds)</label><input id="e-poll" type="number" min="1" max="60" step="1"></div>
+      </div>
+      <div class="row-kv" style="margin-top:10px"><span>Connection now</span><b id="e-status">-</b></div>
+      <div class="row-kv"><span>Sensors</span><b>IR1-IR4 slots, IR5 entrance, IR6 exit</b></div>
+      <div class="error" id="err-esp"></div>
+      <div class="actions"><button class="btn secondary" id="test-esp">Test connection</button><button class="btn" id="save-esp">Save ESP32 info</button></div>
+    </div>
+
+    <div class="card" id="system" style="grid-column:1/-1">
+      <h3><em>5</em> System information</h3>
+      <div class="field-row" style="gap:36px">
+        <div>
+          <div class="row-kv"><span>Project</span><b>ADCET Smart Parking</b></div>
+          <div class="row-kv"><span>College</span><b>Annasaheb Dange College of Engineering &amp; Technology, Ashta</b></div>
+          <div class="row-kv"><span>Version</span><b id="i-ver"></b></div>
+          <div class="row-kv"><span>Hardware</span><b>ESP32 + IR sensors + automatic gate</b></div>
+        </div>
+        <div>
+          <div class="row-kv"><span>Bookings saved</span><b id="i-book"></b></div>
+          <div class="row-kv"><span>Storage</span><b>Shared Node booking server</b></div>
+          <div class="row-kv"><span>Storage used</span><b id="i-size"></b></div>
+          <div class="row-kv"><span>Browser</span><b id="i-browser" style="text-align:right"></b></div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn secondary" id="backup">Download backup (JSON)</button>
+        <button class="btn grey" id="reset">Reset settings to default</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/export.js"></script>
+<script>
+  renderHeader("admin");
+  renderSidebar("settings");
+  renderFooter();
+
+  const $ = id => document.getElementById(id);
+  const clear = () => document.querySelectorAll(".error").forEach(e => { e.textContent = ""; });
+
+  function load() {
+    $("f-total").textContent = CONFIG.TOTAL_SLOTS;
+    $("slot-list").innerHTML = [...Array(CONFIG.TOTAL_SLOTS)].map((_, i) =>
+      '<div class="slot-row"><span>Slot ' + (i + 1) + ' <span style="color:var(--muted)">(sensor IR' + (i + 1) + ')</span></span>' +
+      '<label class="switch"><input type="checkbox" data-slot="' + (i + 1) + '"' + (slotEnabled(i + 1) ? " checked" : "") + '> Open for booking</label></div>').join("");
+    $("rate").value = CONFIG.RATE_PER_HOUR;
+    $("a-name").value = CONFIG.ADMIN_NAME || "";
+    $("a-user").value = CONFIG.ADMIN_USER;
+    $("a-email").value = CONFIG.ADMIN_EMAIL || "";
+    $("a-mobile").value = CONFIG.ADMIN_MOBILE || "";
+    $("e-url").value = CONFIG.ESP32_URL;
+    $("e-ssid").value = CONFIG.ESP32_SSID || "";
+    $("e-poll").value = CONFIG.POLL_MS / 1000;
+    $("i-ver").textContent = CONFIG.VERSION;
+    $("i-book").textContent = getBookings().length;
+    let size = 0;
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); size += (k + localStorage.getItem(k)).length * 2; } } catch (e) {}
+    $("i-size").textContent = size < 1024 ? size + " bytes" : (size / 1024).toFixed(1) + " KB";
+    $("i-browser").textContent = navigator.userAgent.replace(/\s*\(.*?\)\s*/g, " ").trim().slice(0, 60);
+  }
+
+  $("save-slots").addEventListener("click", () => {
+    const closed = [...document.querySelectorAll("#slot-list input")].filter(i => !i.checked).map(i => Number(i.dataset.slot));
+    saveSettings({ DISABLED_SLOTS: closed });
+    toast(closed.length ? "Saved - closed: " + closed.map(n => "Slot " + n).join(", ") : "Saved - all slots open");
+  });
+
+  $("save-rate").addEventListener("click", () => {
+    clear();
+    const v = Number($("rate").value);
+    if (!$("rate").value || !isFinite(v) || v < 0 || v > 10000) { $("err-rate").textContent = "Enter a valid amount."; return; }
+    saveSettings({ RATE_PER_HOUR: Math.round(v) });
+    toast("Parking charge saved: " + rupees(Math.round(v)) + " / hour");
+  });
+
+  $("save-prof").addEventListener("click", () => {
+    clear();
+    const name = $("a-name").value.trim(), email = $("a-email").value.trim(), mob = $("a-mobile").value.trim();
+    if (name.length < 2) { $("err-prof").textContent = "Enter the admin name."; return; }
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { $("err-prof").textContent = "Enter a valid email."; return; }
+    if (mob && !/^[6-9]\d{9}$/.test(mob)) { $("err-prof").textContent = "Enter a valid 10 digit mobile number."; return; }
+    saveSettings({ ADMIN_NAME: name, ADMIN_EMAIL: email, ADMIN_MOBILE: mob });
+    toast("Admin profile saved");
+  });
+
+  $("save-pass").addEventListener("click", () => {
+    clear();
+    if ($("p-old").value !== CONFIG.ADMIN_PASS) { $("err-pass").textContent = "Current password is wrong."; return; }
+    if ($("p-new").value.length < 6) { $("err-pass").textContent = "New password must have at least 6 characters."; return; }
+    saveSettings({ ADMIN_PASS: $("p-new").value });
+    $("p-old").value = ""; $("p-new").value = "";
+    toast("Password changed");
+  });
+
+  async function status() {
+    const l = await fetchLive();
+    $("e-status").textContent = l.online ? "ONLINE (" + l.ms + " ms)" : "OFFLINE - demo mode";
+    return l;
+  }
+  $("test-esp").addEventListener("click", async () => {
+    clear();
+    const url = $("e-url").value.trim();
+    if (!/^https?:\/\/.+/i.test(url)) { $("err-esp").textContent = "Enter the ESP32 address, starting with http://"; return; }
+    const old = CONFIG.ESP32_URL;
+    CONFIG.ESP32_URL = url;                    // test the typed address without saving it
+    $("e-status").textContent = "Testing...";
+    const l = await status();
+    CONFIG.ESP32_URL = old;
+    toast(l.online ? "ESP32 answered - connection OK" : "No answer from " + url);
+  });
+  $("save-esp").addEventListener("click", () => {
+    clear();
+    const url = $("e-url").value.trim(), poll = Number($("e-poll").value);
+    if (url && !/^https?:\/\/.+/i.test(url)) { $("err-esp").textContent = "Address must start with http://"; return; }
+    if (!(poll >= 1 && poll <= 60)) { $("err-esp").textContent = "Refresh time must be 1 to 60 seconds."; return; }
+    saveSettings({ ESP32_URL: url, ESP32_SSID: $("e-ssid").value.trim(), POLL_MS: Math.round(poll * 1000) });
+    toast("ESP32 information saved");
+    status();
+  });
+
+  $("backup").addEventListener("click", () => {
+    const data = { exportedAt: new Date().toISOString(), settings: getSettings(), bookings: getBookings() };
+    delete data.settings.ADMIN_PASS;
+    Export.save(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "adcet-parking-backup-" + new Date().toISOString().slice(0, 10) + ".json");
+  });
+
+  $("reset").addEventListener("click", () => {
+    if (!confirm("Reset charge, slots, profile, password and ESP32 info to the default values?\nBookings are NOT deleted.")) return;
+    resetSettings();
+    load();
+    watchAdminBookings(load);
+    status();
+    toast("Settings reset to default");
+  });
+
+  load();
+  status();
+  if (location.hash && $(location.hash.slice(1))) $(location.hash.slice(1)).scrollIntoView();
+</script>
+</body>
+</html>

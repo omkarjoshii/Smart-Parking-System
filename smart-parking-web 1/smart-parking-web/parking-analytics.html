@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parking Analytics - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/analytics.css">
+  <script>
+    if (sessionStorage.getItem("adcet_admin") !== "1") location.replace("admin-login.html");
+  </script>
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+
+  <div class="an-head">
+    <h1>Parking Analytics</h1>
+    <div class="an-actions">
+      <span id="sample"></span>
+      <button class="btn secondary small" onclick="window.print()">Print</button>
+      <a class="btn secondary small" href="revenue.html">Revenue Analytics</a>
+      <a class="btn secondary small" href="admin.html">Back to dashboard</a>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat b"><div class="label">Average parking duration</div><div class="value" id="s-avg">-</div></div>
+    <div class="stat g"><div class="label">Average daily usage (14 days)</div><div class="value" id="s-daily">-</div></div>
+    <div class="stat r"><div class="label">Peak parking hour</div><div class="value" id="s-peak">-</div></div>
+    <div class="stat"><div class="label">Most-used slot</div><div class="value" id="s-slot">-</div></div>
+    <div class="stat"><div class="label">Occupancy right now</div><div class="value" id="s-now">-</div></div>
+  </div>
+
+  <div class="an-grid">
+    <div class="card"><h3>Daily parking usage (parked hours, last 14 days)</h3><div id="c-daily"></div></div>
+    <div class="card"><h3>Occupancy percentage graph (daily, last 14 days)</h3><div id="c-occ"></div></div>
+    <div class="card"><h3>Weekly parking usage (parked hours, 8 weeks)</h3><div id="c-week"></div></div>
+    <div class="card"><h3>Monthly parking usage (parked hours, 6 months)</h3><div id="c-month"></div></div>
+    <div class="card"><h3>Most-used parking slots (parked hours)</h3><div id="c-slot"></div></div>
+    <div class="card"><h3>Peak parking hours (average occupancy %, last 14 days)</h3><div id="c-peak"></div></div>
+  </div>
+
+  <h2 class="section">Daily summary (last 7 days)</h2>
+  <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th>Date</th><th>Bookings started</th><th>Parked hours</th><th>Average duration</th><th>Occupancy</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div class="an-note">Occupancy % = parked hours / (4 slots x 24 hours). It is calculated from booking times (actual arrival/exit when the admin has recorded them). The website does not store sensor history, so these graphs are booking-based. Bookings are stored in this browser (prototype).</div>
+
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/analytics.js"></script>
+<script>
+  renderHeader("admin");
+  renderSidebar("parking");
+  renderFooter();
+
+  const $ = id => document.getElementById(id);
+  const D = AN.DAY, N = 14, SLOTS = CONFIG.TOTAL_SLOTS;
+  const h1 = v => (Math.round(v * 10) / 10) + " h", pc = v => Math.round(v) + "%";
+  const pad = n => String(n).padStart(2, "0");
+
+  function draw() {
+    const list = getBookings().filter(AN.valid).filter(b => AN.span(b));
+
+    // ---- daily ----
+    const ds = AN.days(N), lab = ds.map(AN.dlabel);
+    const hrs = ds.map(t => AN.usageHours(list, t, t + D));
+    const occ = hrs.map(h => h / 24 / SLOTS * 100);
+    Charts.bar("c-daily", lab, [{ name: "Parked hours", values: hrs }], { fmt: h1 });
+    Charts.line("c-occ", lab, occ, { fmt: pc, max: 100 });
+
+    // ---- weekly / monthly ----
+    const ws = AN.weeks(8), ms = AN.months(6);
+    Charts.bar("c-week", ws.map(AN.dlabel), [{ name: "Parked hours", values: ws.map(t => AN.usageHours(list, t, t + 7 * D)) }], { fmt: h1 });
+    Charts.bar("c-month", ms.map(m => m.label), [{ name: "Parked hours", values: ms.map(m => AN.usageHours(list, m.from, m.to)) }], { fmt: h1 });
+
+    // ---- slots ----
+    const slotHrs = [1, 2, 3, 4].map(n => AN.usageHours(list.filter(b => Number(b.slot) === n), 0, Date.now() + D * 3650));
+    Charts.bar("c-slot", ["Slot 1", "Slot 2", "Slot 3", "Slot 4"], [{ name: "Parked hours", values: slotHrs }], { fmt: h1 });
+
+    // ---- peak hours ----
+    const hr = AN.hourly(list, N).map(v => v / SLOTS * 100);
+    const peak = hr.indexOf(Math.max.apply(null, hr));
+    Charts.bar("c-peak", hr.map((_, i) => pad(i)), [{ name: "Avg occupancy", values: hr }], { fmt: pc, hi: Math.max.apply(null, hr) > 0 ? peak : -1 });
+
+    // ---- top stats ----
+    const durs = list.map(b => { const p = AN.span(b); return (p[1] - p[0]) / AN.HR; });
+    $("s-avg").textContent = durs.length ? h1(durs.reduce((a, b) => a + b, 0) / durs.length) : "-";
+    $("s-daily").textContent = hrs.some(Boolean) ? h1(hrs.reduce((a, b) => a + b, 0) / N) : "-";
+    $("s-peak").textContent = Math.max.apply(null, hr) > 0 ? pad(peak) + ":00 - " + pad((peak + 1) % 24) + ":00" : "-";
+    const best = slotHrs.indexOf(Math.max.apply(null, slotHrs));
+    $("s-slot").textContent = Math.max.apply(null, slotHrs) > 0 ? "Slot " + (best + 1) : "-";
+
+    // ---- last 7 days table ----
+    const start = ds.length - 7;
+    $("rows").innerHTML = ds.slice(start).map((t, i) => {
+      const k = start + i;
+      const todays = list.filter(b => AN.span(b)[0] >= t && AN.span(b)[0] < t + D);
+      const avg = todays.length ? todays.reduce((a, b) => a + (AN.span(b)[1] - AN.span(b)[0]) / AN.HR, 0) / todays.length : 0;
+      return "<tr><td>" + AN.dlabel(t) + "</td><td>" + todays.length + "</td><td>" + h1(hrs[k]) + "</td><td>" +
+             (todays.length ? h1(avg) : "-") + "</td><td>" + pc(occ[k]) + "</td></tr>";
+    }).reverse().join("");
+  }
+
+  async function live() {
+    try {
+      const l = await fetchLive();
+      $("s-now").textContent = Math.round(l.slots.filter(Boolean).length / SLOTS * 100) + "%";
+    } catch (e) { $("s-now").textContent = "-"; }
+  }
+
+  AN.sampleButtons("sample", draw);
+  draw();
+  watchAdminBookings(draw);
+  live();
+  setInterval(live, CONFIG.POLL_MS);
+</script>
+</body>
+</html>

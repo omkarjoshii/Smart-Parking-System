@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Book a Slot - ADCET Smart Parking</title>
+  <link rel="icon" href="images/adcet-logo.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="site-header"></div>
+
+<div class="wrap">
+
+  <div class="stepper">
+    <div class="s on" id="st1">1. Your details</div>
+    <div class="s" id="st2">2. Time &amp; slot</div>
+    <div class="s" id="st3">3. Review</div>
+    <div class="s" id="st4">4. Payment</div>
+  </div>
+
+  <div class="two-col">
+
+    <div class="card">
+
+      <!-- STEP 1 -->
+      <div id="step1">
+        <div class="welcome" id="welcome">Welcome! Please enter your details to book a parking slot.</div>
+
+        <div class="form-grid">
+          <div>
+            <label for="name">Full name</label>
+            <input id="name" autocomplete="name" placeholder="e.g. Omkar Joshi">
+          </div>
+          <div>
+            <label for="mobile">Mobile number</label>
+            <input id="mobile" inputmode="numeric" maxlength="10" placeholder="10 digit number">
+          </div>
+          <div class="full">
+            <label for="address">Address</label>
+            <textarea id="address" rows="2" placeholder="Village / city, taluka, district"></textarea>
+          </div>
+          <div>
+            <label for="vehicle">Vehicle number</label>
+            <input id="vehicle" placeholder="MH10AB1234" style="text-transform:uppercase">
+            <div class="hint">Format: MH10AB1234</div>
+          </div>
+          <div>
+            <label for="vtype">Vehicle type</label>
+            <select id="vtype">
+              <option>Car</option>
+              <option>Bike</option>
+              <option>Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="error" id="err1"></div>
+        <div class="actions">
+          <a class="btn secondary" href="index.html">Cancel</a>
+          <button class="btn" id="next1">Next</button>
+        </div>
+      </div>
+
+      <!-- STEP 2 -->
+      <div id="step2" style="display:none">
+        <div class="form-grid">
+          <div>
+            <label for="arrival">Arrival time</label>
+            <input type="datetime-local" id="arrival">
+          </div>
+          <div>
+            <label for="exit">Exit time</label>
+            <input type="datetime-local" id="exit">
+          </div>
+        </div>
+
+        <h3 style="margin:22px 0 10px">Choose a slot</h3>
+        <div class="slot-pick" id="slotpick"></div>
+        <div class="hint" id="slothint">Select arrival and exit time to see which slots are free.</div>
+
+        <div class="note" id="estimate" style="display:none"></div>
+
+        <div class="error" id="err2"></div>
+        <div class="actions">
+          <button class="btn secondary" id="back2">Back</button>
+          <button class="btn" id="next2">Next</button>
+        </div>
+      </div>
+
+      <!-- STEP 3 -->
+      <div id="step3" style="display:none">
+        <h3 style="margin-top:0">Booking summary</h3>
+        <table class="summary-table" id="summary"></table>
+        <div class="actions">
+          <button class="btn secondary" id="back3">Back</button>
+          <button class="btn" id="next3">Continue to payment</button>
+        </div>
+      </div>
+
+      <!-- STEP 4 -->
+      <div id="step4" style="display:none">
+        <h3 style="margin-top:0">Payment</h3>
+        <div class="note" id="pay-total" style="margin:0 0 12px"></div>
+
+        <h3 style="margin:14px 0 4px">Payment method</h3>
+        <div class="pay-methods" id="methods">
+          <label class="sel"><input type="radio" name="pm" value="UPI" checked>UPI</label>
+          <label><input type="radio" name="pm" value="Card">Card</label>
+          <label><input type="radio" name="pm" value="Pay at exit">Pay at exit</label>
+        </div>
+
+        <div id="upibox">
+          <label for="upi">UPI ID</label>
+          <input id="upi" placeholder="name@bank">
+        </div>
+
+        <div class="note">
+          This is a college prototype. Online payment is simulated and no real money is charged.
+        </div>
+
+        <div class="error" id="err3"></div>
+        <div class="actions">
+          <button class="btn secondary" id="back4">Back</button>
+          <button class="btn green" id="pay">Confirm &amp; Pay</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- side panel: live status -->
+    <div class="card">
+      <h3>Live parking status</h3>
+      <div id="bays"></div>
+      <div class="status-line" style="margin:10px 0 14px">
+        <span class="dot" id="dot"></span><span id="conn">Connecting...</span>
+      </div>
+      <div class="row-kv"><span>Free slots</span><b id="s-free">-</b></div>
+      <div class="row-kv"><span>Charge</span><b id="s-rate"></b></div>
+      <div class="row-kv"><span>Minimum charge</span><b>1 hour</b></div>
+    </div>
+
+  </div>
+</div>
+
+<div id="site-footer"></div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script>
+  renderHeader("book");
+  renderFooter();
+
+  const $ = id => document.getElementById(id);
+  let live = { slots: [false, false, false, false], online: false };
+  let chosenSlot = null;
+  let availabilityReady = false;
+  let data = {};          // collected form data
+
+  $("s-rate").textContent = rupees(CONFIG.RATE_PER_HOUR) + " / hour";
+
+  // ---------- remembered user ----------
+  try {
+    const u = JSON.parse(localStorage.getItem(LAST_USER_KEY));
+    if (u) {
+      $("name").value = u.name || "";
+      $("mobile").value = u.mobile || "";
+      $("address").value = u.address || "";
+      $("vehicle").value = u.vehicle || "";
+      if (u.vtype) $("vtype").value = u.vtype;
+      if (u.name) $("welcome").textContent = "Welcome back, " + u.name.split(" ")[0] + "! Please check your details.";
+    }
+  } catch (e) {}
+
+  $("name").addEventListener("input", () => {
+    const n = $("name").value.trim().split(" ")[0];
+    $("welcome").textContent = n ? "Welcome, " + n + "! Please enter your details to book a parking slot."
+                                 : "Welcome! Please enter your details to book a parking slot.";
+  });
+
+  // ---------- steps ----------
+  function showStep(n) {
+    [1, 2, 3, 4].forEach(i => {
+      $("step" + i).style.display = i === n ? "" : "none";
+      $("st" + i).className = "s" + (i === n ? " on" : (i < n ? " done" : ""));
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // STEP 1 -> 2
+  $("next1").addEventListener("click", () => {
+    const name = $("name").value.trim();
+    const mobile = $("mobile").value.trim();
+    const address = $("address").value.trim();
+    const vehicle = normaliseVehicle($("vehicle").value);
+    const err = $("err1");
+    err.textContent = "";
+
+    if (name.length < 3) { err.textContent = "Please enter your full name."; return; }
+    if (!/^[6-9]\d{9}$/.test(mobile)) { err.textContent = "Enter a valid 10 digit mobile number."; return; }
+    if (address.length < 5) { err.textContent = "Please enter your address."; return; }
+    if (!validVehicle(vehicle)) { err.textContent = "Enter a valid vehicle number, e.g. MH10AB1234."; return; }
+
+    data = { name, mobile, address, vehicle, vtype: $("vtype").value };
+
+    // save the details now, so the welcome message shows the latest name everywhere
+    localStorage.setItem(LAST_USER_KEY, JSON.stringify(data));
+
+    // default times: arrival = now, exit = now + 2 hours
+    if (!$("arrival").value) {
+      const now = new Date();
+      now.setSeconds(0, 0);
+      $("arrival").value = toLocalInput(now);
+      $("exit").value = toLocalInput(new Date(now.getTime() + 2 * 3600000));
+      $("arrival").min = toLocalInput(new Date(now.getTime() - 5 * 60000));
+    }
+    drawSlots();
+    showStep(2);
+  });
+
+  // ---------- slot picker ----------
+  function times() {
+    const a = $("arrival").value, e = $("exit").value;
+    if (!a || !e) return null;
+    const A = new Date(a), E = new Date(e);
+    if (isNaN(A) || isNaN(E) || E <= A) return null;
+    return { a: A.toISOString(), e: E.toISOString(), A, E };
+  }
+
+  function slotStatus(i, t) {
+    if (!t) return { ok: false, text: "-" };
+    if (!availabilityReady) return { ok: false, text: "Checking..." };
+    if (!slotEnabled(i + 1)) return { ok: false, text: "Closed" };
+    if (!slotIsFreeForWindow(i + 1, t.a, t.e)) return { ok: false, text: "Reserved" };
+    // a car is physically parked there and we arrive within 30 minutes
+    if (live.slots[i] && t.A < new Date(Date.now() + 30 * 60000)) return { ok: false, text: "Occupied" };
+    return { ok: true, text: "Free" };
+  }
+
+  function drawSlots() {
+    const t = times();
+    const box = $("slotpick");
+    let html = "";
+    for (let i = 0; i < CONFIG.TOTAL_SLOTS; i++) {
+      const s = slotStatus(i, t);
+      const sel = chosenSlot === i + 1 && s.ok;
+      html += '<label class="' + (s.ok ? "ok" : "na") + (sel ? " sel" : "") + '">' +
+        '<input type="radio" name="slot" value="' + (i + 1) + '"' + (s.ok ? "" : " disabled") + (sel ? " checked" : "") + ">" +
+        '<span class="n">Slot ' + (i + 1) + '</span><span class="st">' + s.text + "</span></label>";
+    }
+    box.innerHTML = html;
+
+    if (chosenSlot && !slotStatus(chosenSlot - 1, t).ok) chosenSlot = null;
+
+    $("slothint").textContent = !availabilityReady ? "Connecting to shared booking data..."
+      : t ? "Tap a free slot to select it." : "Exit time must be after arrival time.";
+
+    const est = $("estimate");
+    if (t) {
+      const h = hoursBetween(t.a, t.e);
+      est.style.display = "";
+      est.textContent = "Duration: " + fmtDuration(t.a, t.e) + "  |  Estimated amount: " +
+        rupees(h * CONFIG.RATE_PER_HOUR) + " (" + h + " h x " + rupees(CONFIG.RATE_PER_HOUR) + ")";
+    } else {
+      est.style.display = "none";
+    }
+  }
+
+  $("slotpick").addEventListener("change", e => {
+    if (e.target.name === "slot") { chosenSlot = Number(e.target.value); drawSlots(); }
+  });
+  $("arrival").addEventListener("change", drawSlots);
+  $("exit").addEventListener("change", drawSlots);
+
+  $("back2").addEventListener("click", () => showStep(1));
+
+  // STEP 2 -> 3
+  $("next2").addEventListener("click", async () => {
+    const err = $("err2");
+    err.textContent = "";
+    try {
+      await refreshSharedReservations();
+      availabilityReady = true;
+      drawSlots();
+    } catch (e) {
+      availabilityReady = false;
+      drawSlots();
+      err.textContent = "Booking service is unavailable. Please try again when the server is online.";
+      return;
+    }
+    const t = times();
+    if (!t) { err.textContent = "Please choose a valid arrival and exit time."; return; }
+    if (t.A < new Date(Date.now() - 10 * 60000)) { err.textContent = "Arrival time cannot be in the past."; return; }
+    if (t.E - t.A < 30 * 60000) { err.textContent = "Minimum booking is 30 minutes."; return; }
+    if (t.E - t.A > 24 * 3600000) { err.textContent = "Maximum booking is 24 hours."; return; }
+    if (!chosenSlot) { err.textContent = "Please select a free slot."; return; }
+
+    const clash = getBookings().some(b => isLive(b) && b.vehicle === data.vehicle &&
+      t.A < new Date(b.exit) && t.E > new Date(b.arrival));
+    if (clash) { err.textContent = "This vehicle already has a booking for that time."; return; }
+
+    data.arrival = t.a;
+    data.exit = t.e;
+    data.slot = chosenSlot;
+    data.hours = hoursBetween(t.a, t.e);
+    data.amount = data.hours * CONFIG.RATE_PER_HOUR;
+
+    $("summary").innerHTML =
+      row("Name", data.name) + row("Mobile", data.mobile) + row("Address", data.address) +
+      row("Vehicle", data.vehicle + " (" + data.vtype + ")") + row("Slot", "Slot " + data.slot) +
+      row("Arrival", fmtDateTime(data.arrival)) + row("Exit", fmtDateTime(data.exit)) +
+      row("Duration", data.hours + " hour(s) billed") +
+      '<tr class="total"><td>Total amount</td><td>' + rupees(data.amount) + "</td></tr>";
+    showStep(3);
+  });
+
+  function row(k, v) { return "<tr><td>" + k + "</td><td>" + esc(v) + "</td></tr>"; }
+
+  $("back3").addEventListener("click", () => showStep(2));
+  $("next3").addEventListener("click", () => {
+    $("pay-total").innerHTML = "Total to pay: <b>" + rupees(data.amount) + "</b> for Slot " + data.slot + " (" + data.hours + " hour(s)).";
+    $("methods").dispatchEvent(new Event("change"));
+    showStep(4);
+  });
+  $("back4").addEventListener("click", () => showStep(3));
+
+  // ---------- payment ----------
+  $("methods").addEventListener("change", () => {
+    const val = document.querySelector('input[name="pm"]:checked').value;
+    document.querySelectorAll("#methods label").forEach(l =>
+      l.classList.toggle("sel", l.querySelector("input").checked));
+    $("upibox").style.display = val === "UPI" ? "" : "none";
+    $("pay").textContent = val === "Pay at exit" ? "Confirm Booking" : "Confirm & Pay " + rupees(data.amount);
+  });
+
+  $("pay").addEventListener("click", () => {
+    const err = $("err3");
+    err.textContent = "";
+    const method = document.querySelector('input[name="pm"]:checked').value;
+
+    if (method === "UPI" && !/^[\w.\-]{2,}@[A-Za-z]{2,}$/.test($("upi").value.trim())) {
+      err.textContent = "Enter a valid UPI ID, e.g. name@okbank.";
+      return;
+    }
+
+    // make sure nobody took the slot meanwhile
+    if (!slotIsFreeForWindow(data.slot, data.arrival, data.exit)) {
+      err.textContent = "Sorry, this slot was just booked. Please go back and choose another.";
+      return;
+    }
+
+    const btn = $("pay");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>' +
+      (method === "Pay at exit" ? "Saving..." : "Processing payment...");
+
+    setTimeout(async () => {
+      const paid = method !== "Pay at exit";
+      const booking = {
+        id: newBookingId(),
+        name: data.name, mobile: data.mobile, address: data.address,
+        vehicle: data.vehicle, vtype: data.vtype,
+        slot: data.slot,
+        bookedAt: new Date().toISOString(),
+        arrival: data.arrival, exit: data.exit,
+        hours: data.hours, amount: data.amount,
+        method: method,
+        payStatus: paid ? "Paid" : "Pending",
+        txn: paid ? "TXN" + Date.now().toString().slice(-8) : "",
+        status: "Booked",
+        actualArrival: "", actualExit: "", finalAmount: 0
+      };
+      try {
+        await createBooking(booking);
+        localStorage.setItem(LAST_USER_KEY, JSON.stringify({
+          name: data.name, mobile: data.mobile, address: data.address,
+          vehicle: data.vehicle, vtype: data.vtype
+        }));
+        window.location.href = "receipt.html?id=" + encodeURIComponent(booking.id) + "&new=1";
+      } catch (e) {
+        err.textContent = e.message || "Booking could not be saved. Please try again.";
+        btn.disabled = false;
+        btn.textContent = method === "Pay at exit" ? "Confirm Booking" : "Confirm & Pay " + rupees(data.amount);
+        try { await refreshSharedReservations(); availabilityReady = true; } catch (refreshError) { availabilityReady = false; }
+        drawSlots();
+      }
+    }, 1600);
+  });
+
+  // ---------- live data ----------
+  async function refreshAvailability() {
+    try {
+      await refreshSharedReservations();
+      availabilityReady = true;
+    } catch (e) {
+      availabilityReady = false;
+    }
+    if ($("step2").style.display !== "none") drawSlots();
+  }
+
+  async function refresh() {
+    live = await fetchLive();
+    renderBays("bays", live, false);
+    $("s-free").textContent = freeCount(live);
+    $("dot").className = "dot " + (live.online ? "on" : "off");
+    $("conn").textContent = live.online ? "Live from the parking sensors"
+      : (live.demo ? "Sensors not reachable - demo data" : "Sensors not reachable");
+    if ($("step2").style.display !== "none") drawSlots();
+  }
+
+  refreshAvailability();
+  setInterval(refreshAvailability, CONFIG.POLL_MS);
+  refresh();
+  setInterval(refresh, CONFIG.POLL_MS);
+</script>
+</body>
+</html>
